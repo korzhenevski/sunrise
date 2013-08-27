@@ -2,7 +2,7 @@ package radio
 
 import (
 	"errors"
-	"github.com/outself/sunrise/tracker/server"
+	"github.com/outself/sunrise/manager"
 	"github.com/vova616/xxhash"
 	"hash"
 	"log"
@@ -10,24 +10,24 @@ import (
 )
 
 type Ripper struct {
-	task    *server.Task
+	task    *manager.Task
 	manager *Worker
 	dumper  *Dumper
 	stream  *Stream
 
 	meta          string
 	metaChangedAt int64
-	track         *server.TrackResult
+	track         *manager.TrackResult
 	stop          chan bool
 	hasher        hash.Hash32
 }
 
-func NewRipper(task *server.Task, manager *Manager) *Ripper {
+func NewRipper(task *manager.Task, manager *Manager) *Ripper {
 	return &Ripper{
 		task:          task,
 		manager:       manager,
 		dumper:        &Dumper{},
-		track:         &server.TrackResult{},
+		track:         &manager.TrackResult{},
 		stop:          make(chan bool),
 		hasher:        xxhash.New(0),
 		metaChangedAt: time.Now().Unix(),
@@ -102,7 +102,7 @@ func (w *Ripper) Run() {
 }
 
 func (w *Ripper) trackMeta() error {
-	data := &server.TrackMeta{
+	data := &manager.TrackMeta{
 		TaskId:   w.task.Id,
 		StreamId: w.task.StreamId,
 		RecordId: w.track.RecordId,

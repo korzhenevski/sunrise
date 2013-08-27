@@ -2,6 +2,7 @@ package manager
 
 import (
 	"github.com/reusee/mmh3"
+	neturl "net/url"
 	"regexp"
 	"strings"
 )
@@ -20,4 +21,12 @@ func ExtractStreamTitle(meta string) string {
 		return strings.TrimSpace(match[1])
 	}
 	return ""
+}
+
+func NormalizeUrl(rawurl string) (string, error) {
+	url, err := neturl.Parse(strings.TrimSpace(rawurl))
+	if err != nil {
+		return "", nil
+	}
+	return url.String(), nil
 }
