@@ -27,6 +27,10 @@ import (
 // Extract queue specific logic to Worker class
 // Test with 1024 streams
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 type Manager struct {
 	q       *mgo.Collection
 	air     *mgo.Collection
@@ -54,13 +58,16 @@ type OpResult struct {
 }
 
 type Task struct {
-	Id             uint32 `bson:"_id"`
-	StreamUrl      string `bson:"url"`
-	StreamId       uint32 `bson:"stream_id"`
-	ServerId       uint32 `bson:"server_id"`
-	Record         bool   `bson:"record"`
-	RecordDuration uint32 `bson:"record_duration"`
-	Time           uint32 `bson:"ts"`
+	Id               uint32 `bson:"_id"`
+	StreamUrl        string `bson:"url"`
+	StreamId         uint32 `bson:"stream_id"`
+	ServerId         uint32 `bson:"server_id"`
+	Record           bool   `bson:"record"`
+	RecordDuration   uint32 `bson:"record_duration"`
+	Time             uint32 `bson:"ts"`
+	RetryInterval    uint32 `bson:"retry_ivl"`
+	MinRetryInterval uint32 `bson:"min_retry_ivl`
+	MaxRetryInterval uint32 `bson:"max_retry_ivl"`
 	OpResult
 }
 
@@ -364,7 +371,7 @@ func (m *Manager) ReserveTask(serverId uint32, task *Task) error {
 }
 
 // return deleted ids
-func (m *Manager) TouchTask(serverId uint32, taskId uint32, res *OpResult) error {
+func (m *Manager) TouchTask(serverId []uint32, taskId uint32, res *OpResult) error {
 	where := bson.M{"_id": bson.M{"$in": serverId}, "server_id": serverId}
 	err := m.q.Update(where, bson.M{"$set": bson.M{"ts": getTs()}})
 
@@ -377,4 +384,34 @@ func (m *Manager) TouchTask(serverId uint32, taskId uint32, res *OpResult) error
 
 	res.Success = true
 	return nil
+}
+
+func (m *Manager) RetryTask(taskId uint32, res *OpResult) error {
+	task := new(Task)
+	err := m.q.FindId(taskId).One(task)
+	if err == mgo.ErrNotFound {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	task.NextRetryInterval()
+	err := m.q.UpdateId(taskId, bson.M{"ts": getTs() + task.RetryInterval, "retry_ivl": task.RetryInterval})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *Task) NextRetryInterval() uint32 {
+	if t.RetryInterval < t.MaxRetryInterval {
+		if t.RetryInterval > 0 {
+			t.RetryInterval = uint32(float32(t.RetryInterval) * 1.5 * (0.5 + rand.Float32()))
+		} else {
+			t.RetryInterval = t.MinRetryInterval
+		}
+	} else {
+		t.RetryInterval = t.MaxRetryInterval
+	}
+	return t.RetryInterval
 }

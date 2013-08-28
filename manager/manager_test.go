@@ -108,3 +108,9 @@ func (s *MySuite) TestRemoveStream(c *C) {
 	c.Check(err, IsNil)
 	c.Check(result.Success, Equals, false)
 }
+
+func (s *MySuite) TestTaskNextRetryInterval(c *C) {
+	t := &Task{MinRetryInterval: 30, MaxRetryInterval: 3600}
+	// c.Check(t.NextRetryInterval(), Equals, 100000)
+	//c.Error(t.NextRetryInterval())
+}
