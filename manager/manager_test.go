@@ -43,36 +43,51 @@ func (s *MySuite) TestNextId(c *C) {
 	c.Assert(nid, Equals, uint32(2))
 }
 
-func (s *MySuite) TestPutAndGetStream(c *C) {
-	req := PutRequest{
-		Url:            "http://stream.again.fm:8080/stream01?user=hello%20world",
-		Id:             1488,
-		ServerId:       100,
-		Record:         true,
-		RecordDuration: 300,
+// add failing tests
+func (s *MySuite) TestPutAndGetTask(c *C) {
+	task := Task{
+		StreamUrl:        "http://stream.again.fm:8080/stream01?user=hello%20world",
+		StreamId:         1488,
+		ServerId:         100,
+		Record:           true,
+		RecordDuration:   300,
+		MinRetryInterval: 10,
 	}
 
 	var res PutResult
 	var err error
-	err = s.m.PutStream(req, &res)
-
-	c.Check(err, Equals, nil)
+	err = s.m.PutTask(task, &res)
+	c.Assert(err, IsNil)
 	c.Check(res.Success, Equals, true)
+
 	if res.TaskId == 0 {
 		c.Error("Result TaskId is zero")
 	}
 
-	var task Task
-	err = s.m.GetTask(res.TaskId, &task)
-	c.Check(err, Equals, nil)
+	t := new(Task)
+	err = s.m.GetTask(res.TaskId, t)
+	c.Assert(err, IsNil)
+	c.Assert(t.Success, Equals, true)
 
 	// explicit checking
-	c.Check(task.Id, Equals, res.TaskId)
-	c.Check(task.StreamUrl, Equals, req.Url)
-	c.Check(task.StreamId, Equals, req.Id)
-	c.Check(task.ServerId, Equals, req.ServerId)
-	c.Check(task.Record, Equals, req.Record)
-	c.Check(task.RecordDuration, Equals, req.RecordDuration)
+	task.Id = res.TaskId
+	task.Success = true
+
+	c.Check(t, DeepEquals, &task)
+}
+
+func (s *MySuite) putTask(streamId uint32, url string, serverId uint32) error {
+	task := Task{
+		StreamUrl:        url,
+		StreamId:         streamId,
+		ServerId:         serverId,
+		Record:           true,
+		RecordDuration:   300,
+		MinRetryInterval: 10,
+	}
+
+	var res PutResult
+	return s.m.PutTask(task, &res)
 }
 
 func (s *MySuite) TestNormalizeUrl(c *C) {
@@ -87,30 +102,43 @@ func (s *MySuite) TestNormalizeUrl(c *C) {
 	c.Assert(err, IsNil)
 }
 
-func (s *MySuite) TestRemoveStream(c *C) {
-	req := PutRequest{
-		Id:       1488,
-		Url:      "http://www.example.com/",
-		ServerId: 100,
-	}
+// func (s *MySuite) TestRemoveStream(c *C) {
+// 	req := PutRequest{
+// 		Id:       1488,
+// 		Url:      "http://www.example.com/",
+// 		ServerId: 100,
+// 	}
 
-	var res PutResult
-	var err error
-	err = s.m.PutStream(req, &res)
-	c.Check(err, IsNil)
+// 	var res PutResult
+// 	var err error
+// 	err = s.m.PutStream(req, &res)
+// 	c.Check(err, IsNil)
 
-	result := new(OpResult)
-	err = s.m.RemoveTask(res.TaskId, result)
-	c.Check(err, IsNil)
+// 	result := new(OpResult)
+// 	err = s.m.RemoveTask(res.TaskId, result)
+// 	c.Check(err, IsNil)
 
-	result = new(OpResult)
-	err = s.m.RemoveTask(255, result)
-	c.Check(err, IsNil)
-	c.Check(result.Success, Equals, false)
-}
+// 	result = new(OpResult)
+// 	err = s.m.RemoveTask(255, result)
+// 	c.Check(err, IsNil)
+// 	c.Check(result.Success, Equals, false)
+// }
 
 func (s *MySuite) TestTaskNextRetryInterval(c *C) {
-	t := &Task{MinRetryInterval: 30, MaxRetryInterval: 3600}
-	// c.Check(t.NextRetryInterval(), Equals, 100000)
-	//c.Error(t.NextRetryInterval())
+	t := &Task{MinRetryInterval: 30, MaxRetryInterval: 40}
+	c.Check(t.NextRetryInterval(), Equals, t.MinRetryInterval)
+	c.Check(t.NextRetryInterval(), Not(Equals), t.MinRetryInterval)
+}
+
+func (s *MySuite) TestTouchTask(c *C) {
+	taskId := []uint32{1, 2, 3, 4, 5, 68, 4324234}
+	req := TouchRequest{
+		TaskId:   taskId,
+		ServerId: 10001,
+	}
+	var res TouchResult
+	err := s.m.TouchTask(req, &res)
+	c.Assert(err, IsNil)
+	c.Assert(res.Success, Equals, true)
+	c.Check(res.ObsoleteTaskId, DeepEquals, taskId)
 }

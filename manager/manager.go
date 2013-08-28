@@ -2,9 +2,11 @@ package manager
 
 import (
 	"errors"
+	// TODO: really use?
+	// "github.com/cybersiddhu/golang-set"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"log"
+	// "log"
 	"math/rand"
 	"path"
 	"strconv"
@@ -69,6 +71,19 @@ type Task struct {
 	MinRetryInterval uint32 `bson:"min_retry_ivl`
 	MaxRetryInterval uint32 `bson:"max_retry_ivl"`
 	OpResult
+}
+
+func (t *Task) NextRetryInterval() uint32 {
+	if t.RetryInterval < t.MaxRetryInterval {
+		if t.RetryInterval > 0 {
+			t.RetryInterval = uint32(float32(t.RetryInterval) * 1.5 * (0.5 + rand.Float32()))
+		} else {
+			t.RetryInterval = t.MinRetryInterval
+		}
+	} else {
+		t.RetryInterval = t.MaxRetryInterval
+	}
+	return t.RetryInterval
 }
 
 // Смена метаинформации в потоке
@@ -179,45 +194,39 @@ func (m *Manager) nextId(kind string) (uint32, error) {
 	return result.Next, nil
 }
 
-type PutRequest struct {
-	Id       uint32
-	Url      string
-	ServerId uint32
-	Record   bool
-	// TODO(outself): convert to time.Duration ?
-	RecordDuration uint32
-}
-
 type PutResult struct {
 	TaskId  uint32
 	Success bool
 }
 
-func (m *Manager) PutStream(req PutRequest, res *PutResult) error {
-	taskId, err := m.nextId("task")
-	if err != nil {
+func (m *Manager) PutTask(task Task, res *PutResult) error {
+	var err error
+	if len(task.StreamUrl) == 0 {
+		return errors.New("StreamUrl required")
+	}
+
+	if task.ServerId == 0 {
+		return errors.New("ServerId required")
+	}
+
+	if task.MinRetryInterval == 0 {
+		return errors.New("MinRetryInterval required")
+	}
+
+	if task.StreamUrl, err = NormalizeUrl(task.StreamUrl); err != nil {
 		return err
 	}
 
-	url, err := NormalizeUrl(req.Url)
+	task.Id, err = m.nextId("task")
 	if err != nil {
 		return err
-	}
-
-	task := &Task{
-		Id:             taskId,
-		StreamId:       req.Id,
-		StreamUrl:      url,
-		ServerId:       req.ServerId,
-		Record:         req.Record,
-		RecordDuration: req.RecordDuration,
 	}
 
 	if err := m.q.Insert(task); err != nil {
 		return err
 	}
 
-	res.TaskId = taskId
+	res.TaskId = task.Id
 	res.Success = true
 	return nil
 }
@@ -370,15 +379,45 @@ func (m *Manager) ReserveTask(serverId uint32, task *Task) error {
 	return nil
 }
 
-// return deleted ids
-func (m *Manager) TouchTask(serverId []uint32, taskId uint32, res *OpResult) error {
-	where := bson.M{"_id": bson.M{"$in": serverId}, "server_id": serverId}
-	err := m.q.Update(where, bson.M{"$set": bson.M{"ts": getTs()}})
+type TouchRequest struct {
+	ServerId uint32
+	TaskId   []uint32
+}
 
-	if err == mgo.ErrNotFound {
-		log.Printf("task %d not found", taskId)
-		return nil
-	} else if err != nil {
+type TouchResult struct {
+	ObsoleteTaskId []uint32
+	Success        bool
+}
+
+// Обновляем время последней активности по списку задач от воркера
+// Возвращает список неактивных задач
+func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
+	where := bson.M{"_id": bson.M{"$in": req.TaskId}, "server_id": req.ServerId}
+
+	// делаем из taskId хеш
+	obsoleteTaskId := make(map[uint32]bool)
+	for _, tid := range req.TaskId {
+		obsoleteTaskId[tid] = true
+	}
+
+	iter := m.q.Find(where).Select(bson.M{"_id": 1}).Iter()
+	var t Task
+	for iter.Next(&t) {
+		// удаляем все найденные таски
+		delete(obsoleteTaskId, t.Id)
+	}
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	// копируем в результат несуществующие задачи
+	res.ObsoleteTaskId = make([]uint32, 0, len(obsoleteTaskId))
+	for tid, _ := range obsoleteTaskId {
+		res.ObsoleteTaskId = append(res.ObsoleteTaskId, tid)
+	}
+
+	// обновляем время для всех задач
+	if _, err := m.q.UpdateAll(where, bson.M{"$set": bson.M{"ts": getTs()}}); err != nil {
 		return err
 	}
 
@@ -386,6 +425,9 @@ func (m *Manager) TouchTask(serverId []uint32, taskId uint32, res *OpResult) err
 	return nil
 }
 
+// Повтор задачи с экспоненциальной задержкой
+// Task.MinRetryInterval: Минимальная задержка
+// Task.RetryInterval: Текущая задержка, увеличивается случайно в диапазоне [0,75...2,25], по достижению MaxRetryInterval
 func (m *Manager) RetryTask(taskId uint32, res *OpResult) error {
 	task := new(Task)
 	err := m.q.FindId(taskId).One(task)
@@ -396,22 +438,11 @@ func (m *Manager) RetryTask(taskId uint32, res *OpResult) error {
 	}
 
 	task.NextRetryInterval()
-	err := m.q.UpdateId(taskId, bson.M{"ts": getTs() + task.RetryInterval, "retry_ivl": task.RetryInterval})
-	if err != nil {
+	update := bson.M{"ts": getTs() + task.RetryInterval, "retry_ivl": task.RetryInterval}
+	if err := m.q.UpdateId(taskId, update); err != nil {
 		return err
 	}
-	return nil
-}
 
-func (t *Task) NextRetryInterval() uint32 {
-	if t.RetryInterval < t.MaxRetryInterval {
-		if t.RetryInterval > 0 {
-			t.RetryInterval = uint32(float32(t.RetryInterval) * 1.5 * (0.5 + rand.Float32()))
-		} else {
-			t.RetryInterval = t.MinRetryInterval
-		}
-	} else {
-		t.RetryInterval = t.MaxRetryInterval
-	}
-	return t.RetryInterval
+	res.Success = true
+	return nil
 }
