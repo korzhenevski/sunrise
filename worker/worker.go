@@ -1,48 +1,103 @@
 package worker
 
 import (
-	"github.com/outself/fastfm/tracker/server"
-	"io"
+	"github.com/outself/sunrise/manager"
 	"log"
-	"net/rpc"
-	"sync"
 	"time"
 )
 
 type Worker struct {
-	ServerId uint32
 	Client   *RpcClient
+	ServerId uint32
+	tasks    map[uint32]*WorkerTask
+	stop     chan bool
 }
 
-func New(serverId uint32, addr string) *Worker {
-	return &Manager{ServerId: serverId, Client: NewRpcClient(addr)}
+func NewWorker(serverId uint32, serverAddr string) *Worker {
+	return &Worker{
+		ServerId: serverId,
+		Client:   NewRpcClient(serverAddr),
+		tasks:    make(map[uint32]*WorkerTask),
+		stop:     make(chan bool),
+	}
 }
 
-func (w *Worker) Dispatcher() {
-	
-}
-
-func (w *Manager) Dispatcher() {
-	var err error
-
-	m.Client.Dial()
-
+func (w *Worker) Run() {
+	touchIvl := time.Tick(5 * time.Second)
+	taskq := w.RequestTask()
 	for {
-		task := new(server.Task)
-
-		err = m.Client.Call("Tracker.ReserveTask", m.ServerId, task)
-		if err != nil {
-			panic(err)
+		select {
+		case <-touchIvl:
+			w.SendTaskTouch()
+		case task := <-taskq:
+			w.SpawnTask(task)
+		case <-w.stop:
+			return
 		}
+	}
+}
 
-		if !task.Success {
-			// log.Println("sleep...")
-			time.Sleep(500 * time.Millisecond)
-			continue
+func (w *Worker) RequestTask() <-chan *manager.Task {
+	var err error
+	w.Client.Dial()
+
+	wait := time.Second
+	c := make(chan *manager.Task)
+
+	go func() {
+		for {
+			// log.Println("request task")
+			task := new(manager.Task)
+			err = w.Client.Call("Tracker.ReserveTask", w.ServerId, task)
+			if err != nil {
+				log.Println(err)
+				time.Sleep(wait)
+				continue
+			}
+
+			if !task.Success {
+				time.Sleep(wait)
+				continue
+			}
+
+			c <- task
 		}
+	}()
 
-		//log.Printf("new task: %+v", task)
-		worker := NewWorker(task, m)
-		go worker.Run()
+	return c
+}
+
+func (w *Worker) SpawnTask(task *manager.Task) {
+	log.Printf("Spawn new task: %+v", task)
+	t := NewWorkerTask(task)
+	w.tasks[task.Id] = t
+	go t.Run()
+}
+
+func (w *Worker) SendTaskTouch() {
+	// log.Println("touch")
+	log.Printf("touch. %d running", len(w.tasks))
+
+	if len(w.tasks) == 0 {
+		return
+	}
+
+	req := manager.TouchRequest{ServerId: w.ServerId, Deadline: 10}
+	for id, _ := range w.tasks {
+		req.TaskId = append(req.TaskId, id)
+	}
+
+	res := new(manager.TouchResult)
+	if err := w.Client.Call("Tracker.TouchTask", req, res); err != nil {
+		log.Println(err)
+		return
+	}
+
+	for _, tid := range res.ObsoleteTaskId {
+		if task, ok := w.tasks[tid]; ok {
+			delete(w.tasks, tid)
+			log.Printf("stop task %d", tid)
+			task.Stop()
+		}
 	}
 }

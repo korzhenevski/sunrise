@@ -1,16 +1,15 @@
-package manager
+package worker
 
 import (
-	"github.com/outself/fastfm/tracker/server"
 	"io"
 	"log"
 	"net/rpc"
-	"time"
 	"sync"
+	"time"
 )
 
 type RpcClient struct {
-	mutex	   sync.Mutex
+	mutex      sync.Mutex
 	Client     *rpc.Client
 	Addr       string
 	MaxRetries int
@@ -25,7 +24,7 @@ func (r *RpcClient) Dial() {
 	var err error
 	r.Client, err = rpc.DialHTTP("tcp", r.Addr)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 
@@ -60,6 +59,7 @@ func (r *RpcClient) DialRetry() {
 }
 
 func (r *RpcClient) Call(serviceMethod string, args interface{}, reply interface{}) error {
+	startTime := time.Now()
 	var err error
 	for {
 		r.mutex.Lock()
@@ -71,5 +71,6 @@ func (r *RpcClient) Call(serviceMethod string, args interface{}, reply interface
 		}
 		break
 	}
+	log.Printf("rpc %s: %.3f ms", serviceMethod, (float64)(time.Now().Sub(startTime))/1e6)
 	return err
 }

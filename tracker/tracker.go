@@ -25,7 +25,7 @@ func main() {
 		log.Fatal("mongo dial error:", err)
 	}
 
-	rpc.Register(manager.New(session.DB(*dbName)))
+	rpc.RegisterName("Tracker", manager.New(session.DB(*dbName)))
 	rpc.HandleHTTP()
 
 	listener, err := net.Listen("tcp", *listenAddr)

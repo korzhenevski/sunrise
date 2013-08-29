@@ -33,6 +33,10 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
+const (
+	TOUCH_TIMEOUT = 10
+)
+
 type Manager struct {
 	q       *mgo.Collection
 	air     *mgo.Collection
@@ -362,9 +366,9 @@ func (m *Manager) newRecord(serverId uint32, volumeId uint32) (*Record, error) {
 // add backoff retry
 func (m *Manager) ReserveTask(serverId uint32, task *Task) error {
 	ts := getTs()
-	where := bson.M{"ts": bson.M{"$lt": ts - 20}}
+	where := bson.M{"ts": bson.M{"$lt": ts}, "server_id": serverId}
 	change := mgo.Change{
-		Update:    bson.M{"$set": bson.M{"ts": ts, "server_id": serverId}},
+		Update:    bson.M{"$set": bson.M{"ts": ts + TOUCH_TIMEOUT}},
 		ReturnNew: true,
 	}
 
@@ -387,6 +391,10 @@ type TouchRequest struct {
 type TouchResult struct {
 	ObsoleteTaskId []uint32
 	Success        bool
+}
+
+type TaskResult struct {
+	TaskId uint32
 }
 
 // Обновляем время последней активности по списку задач от воркера
@@ -417,7 +425,7 @@ func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
 	}
 
 	// обновляем время для всех задач
-	if _, err := m.q.UpdateAll(where, bson.M{"$set": bson.M{"ts": getTs()}}); err != nil {
+	if _, err := m.q.UpdateAll(where, bson.M{"$set": bson.M{"ts": getTs() + TOUCH_TIMEOUT}}); err != nil {
 		return err
 	}
 

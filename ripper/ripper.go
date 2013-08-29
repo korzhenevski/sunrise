@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/outself/sunrise/worker"
 	"log"
 	"runtime"
 )
@@ -19,4 +20,7 @@ func main() {
 	log.Printf("* ServerId: %d", *serverId)
 	log.Printf("* Runtime CPU: %d", runtime.NumCPU())
 	log.Printf("* RPC-Tracker: %s", *tracker)
+
+	w := worker.NewWorker(uint32(*serverId), *tracker)
+	w.Run()
 }
