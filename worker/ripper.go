@@ -1,8 +1,11 @@
-package radio
+package worker
+
+// spawn name worker<>ripper
 
 import (
 	"errors"
 	"github.com/outself/sunrise/manager"
+	"github.com/outself/sunrise/radio"
 	"github.com/vova616/xxhash"
 	"hash"
 	"log"
@@ -10,27 +13,26 @@ import (
 )
 
 type Ripper struct {
-	task    *manager.Task
-	manager *Worker
-	dumper  *Dumper
-	stream  *Stream
-
-	meta          string
-	metaChangedAt int64
-	track         *manager.TrackResult
-	stop          chan bool
-	hasher        hash.Hash32
+	task   *manager.Task
+	dumper *radio.Dumper
+	stream *radio.Stream
+	client *RpcClient
+	meta   string
+	metaTs int64
+	track  *manager.TrackResult
+	stop   chan bool
+	hasher hash.Hash32
 }
 
-func NewRipper(task *manager.Task, manager *Manager) *Ripper {
+func NewRipper(task *manager.Task, client *RpcClient) *Ripper {
 	return &Ripper{
-		task:          task,
-		manager:       manager,
-		dumper:        &Dumper{},
-		track:         &manager.TrackResult{},
-		stop:          make(chan bool),
-		hasher:        xxhash.New(0),
-		metaChangedAt: time.Now().Unix(),
+		task:   task,
+		client: client,
+		dumper: &radio.Dumper{},
+		track:  &manager.TrackResult{},
+		stop:   make(chan bool, 1),
+		hasher: xxhash.New(0),
+		metaTs: time.Now().Unix(),
 	}
 }
 
@@ -38,23 +40,35 @@ var (
 	ErrNoTask = errors.New("defunct task")
 )
 
+func (w *Ripper) Stop() {
+	w.stop <- true
+}
+
 func (w *Ripper) Run() {
 	log.Printf("connecting to %s...", w.task.StreamUrl)
 	defer w.checkRipperError()
 	defer w.dumper.Close()
 
 	var err error
-	w.stream, err = NewRadio(w.task.StreamUrl)
+	w.stream, err = radio.NewRadio(w.task.StreamUrl)
 	if err != nil {
 		panic(err)
 	}
 	defer w.stream.Close()
 
 	log.Printf("Ripping '%s' (metaint %d, server '%s')",
-		w.task.StreamUrl, w.stream.metaint, w.stream.res.Header.Get("Server"))
-	metaChanged := true
+		w.task.StreamUrl, w.stream.Metaint, w.stream.GetServerName())
 
+	metaChanged := true
 	for {
+		select {
+		case <-w.stop:
+			log.Printf("%d quit", w.task.Id)
+			return
+		default:
+			// nothing
+		}
+
 		chunk, err := w.stream.ReadChunk()
 		if err != nil {
 			// TODO: really panic??
@@ -75,13 +89,13 @@ func (w *Ripper) Run() {
 		}
 
 		// force rotate
-		if w.track.MaxDuration >= 0 && w.getDuration() >= w.track.MaxDuration {
+		if w.track.LimitRecordDuration >= 0 && w.getDuration() >= w.track.LimitRecordDuration {
 			metaChanged = true
 		}
 
 		// track meta
 		if metaChanged {
-			err := w.trackMeta()
+			err := w.newTrack()
 			if err == ErrNoTask {
 				break
 			} else if err != nil {
@@ -101,18 +115,22 @@ func (w *Ripper) Run() {
 	}
 }
 
-func (w *Ripper) trackMeta() error {
-	data := &manager.TrackMeta{
-		TaskId:   w.task.Id,
-		StreamId: w.task.StreamId,
-		RecordId: w.track.RecordId,
-		Checksum: w.hasher.Sum32(),
-		Meta:     w.meta,
-		Duration: w.getDuration(),
-		PrevId:   w.track.MetaId,
+func (w *Ripper) newTrack() error {
+	dur := w.getDuration()
+	data := &manager.TrackRequest{
+		TaskId:     w.task.Id,
+		RecordId:   w.track.RecordId,
+		DumpHash:   w.hasher.Sum32(),
+		DumpSize:   w.dumper.Written,
+		StreamMeta: w.meta,
+		Duration:   dur,
+		TrackId:    w.track.TrackId,
 	}
+	w.hasher.Reset()
+	w.metaTs = time.Now().Unix()
 
-	err := w.manager.Client.Call("Tracker.TrackMeta", data, w.track)
+	w.track = new(manager.TrackResult)
+	err := w.client.Call("Tracker.NewTrack", data, w.track)
 	if err != nil {
 		return err
 	}
@@ -121,15 +139,13 @@ func (w *Ripper) trackMeta() error {
 		return ErrNoTask
 	}
 
-	w.hasher.Reset()
-	log.Printf("meta changed: (%d) %s", w.track.MetaId, w.meta)
-	w.metaChangedAt = time.Now().Unix()
+	log.Printf("new track %d (%d sec): %s", w.track.TrackId, dur, w.meta)
 	return nil
 }
 
 func (w *Ripper) getDuration() uint32 {
 	// TODO(outself): replace to proper time API
-	return uint32(time.Now().Unix() - w.metaChangedAt)
+	return uint32(time.Now().Unix() - w.metaTs)
 }
 
 func (w *Ripper) checkRipperError() {

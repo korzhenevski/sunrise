@@ -4,9 +4,9 @@ import (
 	"errors"
 	// TODO: really use?
 	// "github.com/cybersiddhu/golang-set"
+	// log "github.com/golang/glog"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	// "log"
 	"math/rand"
 	"path"
 	"strconv"
@@ -93,10 +93,10 @@ func (t *Task) NextRetryInterval() uint32 {
 // Смена метаинформации в потоке
 type TrackRequest struct {
 	TaskId   uint32
-	StreamId uint32
 	RecordId uint32
 	// Хеш записанных данных
 	DumpHash   uint32
+	DumpSize   uint32
 	StreamMeta string
 	// Продолжительность записи
 	Duration uint32
@@ -275,25 +275,28 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		return err
 	}
 
-	vol, err := m.selectUploadVolume(task.ServerId)
-	if err != nil {
-		return err
+	if task.Record {
+		vol, err := m.selectUploadVolume(task.ServerId)
+		if err != nil {
+			return err
+		}
+
+		record, err := m.newRecord(task.ServerId, vol.Id)
+		if err != nil {
+			return err
+		}
+
+		result.RecordId = record.Id
+		result.RecordPath = GetRecordPath(record.Id, vol.Path)
+		result.LimitRecordDuration = task.RecordDuration
 	}
 
-	record, err := m.newRecord(task.ServerId, vol.Id)
-	if err != nil {
-		return err
-	}
-
-	result.RecordId = record.Id
-	result.RecordPath = GetRecordPath(record.Id, vol.Path)
 	result.TrackId = trackId
-	result.LimitRecordDuration = task.RecordDuration
 
 	// save air record
 	track := &Track{
 		Id:       trackId,
-		StreamId: req.StreamId,
+		StreamId: task.StreamId,
 		Title:    title,
 		Time:     ts,
 		EndTime:  0,
@@ -314,7 +317,8 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		}
 
 		if req.RecordId > 0 {
-			m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{"end": true, "hash": req.DumpHash}})
+			m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{
+				"size": req.DumpSize, "hash": req.DumpHash, "end": true}})
 			if err != nil {
 				return err
 			}
@@ -331,8 +335,16 @@ func (m *Manager) selectUploadVolume(serverId uint32) (*Volume, error) {
 
 func (m *Manager) selectVolume(serverId uint32, upload bool) (*Volume, error) {
 	var result []Volume
-	// select any online volume not in source server
-	where := bson.M{"server_id": bson.M{"$ne": serverId}, "online": true, "upload": upload}
+	// выбираем все активные разделы
+	where := bson.M{"online": true}
+	if upload {
+		// если раздел под загрузку, ищем на этом-же сервере
+		where["server_id"] = serverId
+		where["upload"] = true
+	} else {
+		where["server_id"] = bson.M{"$ne": serverId}
+		//where["upload"] = false
+	}
 	err := m.volumes.Find(where).Iter().All(&result)
 	if err == mgo.ErrNotFound {
 		return nil, errors.New("no free volume")

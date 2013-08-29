@@ -6,10 +6,15 @@ import (
 	"time"
 )
 
+type WorkerTask interface {
+	Stop()
+	Run()
+}
+
 type Worker struct {
 	Client   *RpcClient
 	ServerId uint32
-	tasks    map[uint32]*WorkerTask
+	tasks    map[uint32]*Ripper
 	stop     chan bool
 }
 
@@ -17,7 +22,7 @@ func NewWorker(serverId uint32, serverAddr string) *Worker {
 	return &Worker{
 		ServerId: serverId,
 		Client:   NewRpcClient(serverAddr),
-		tasks:    make(map[uint32]*WorkerTask),
+		tasks:    make(map[uint32]*Ripper),
 		stop:     make(chan bool),
 	}
 }
@@ -69,20 +74,20 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 
 func (w *Worker) SpawnTask(task *manager.Task) {
 	log.Printf("Spawn new task: %+v", task)
-	t := NewWorkerTask(task)
+	t := NewRipper(task, w.Client)
 	w.tasks[task.Id] = t
 	go t.Run()
 }
 
 func (w *Worker) SendTaskTouch() {
 	// log.Println("touch")
-	log.Printf("touch. %d running", len(w.tasks))
+	// log.Printf("touch. %d running", len(w.tasks))
 
 	if len(w.tasks) == 0 {
 		return
 	}
 
-	req := manager.TouchRequest{ServerId: w.ServerId, Deadline: 10}
+	req := manager.TouchRequest{ServerId: w.ServerId}
 	for id, _ := range w.tasks {
 		req.TaskId = append(req.TaskId, id)
 	}

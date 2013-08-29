@@ -18,7 +18,7 @@ type Radio struct {
 type Stream struct {
 	res     *http2.Response
 	reader  *bufio.Reader
-	metaint int
+	Metaint int
 }
 
 type Chunk struct {
@@ -48,20 +48,21 @@ func NewRadio(url string) (stream *Stream, err error) {
 	return radio.Get()
 }
 
-func (r *Radio) Get() (stream *Stream, err error) {
+func (r *Radio) Get() (*Stream, error) {
+	var err error
 	req, _ := http2.NewRequest("GET", r.Url, nil)
 
 	req.Header.Set("Icy-Metadata", "1")
 	req.Header.Set("User-Agent", "Robot/1.0")
 
-	stream = new(Stream)
+	stream := new(Stream)
 
 	stream.res, err = r.Client.Do(req)
 	if err != nil {
 		panic(err)
 	}
 
-	stream.metaint, err = strconv.Atoi(stream.res.Header.Get("Icy-Metaint"))
+	stream.Metaint, err = strconv.Atoi(stream.res.Header.Get("Icy-Metaint"))
 	if err != nil {
 		panic("invalid metaint")
 	}
@@ -73,7 +74,7 @@ func (r *Radio) Get() (stream *Stream, err error) {
 // Read audio data and metadata from radio stream
 func (s *Stream) ReadChunk() (chunk *Chunk, err error) {
 	chunk = new(Chunk)
-	chunk.Data = make([]byte, s.metaint)
+	chunk.Data = make([]byte, s.Metaint)
 
 	_, e := io.ReadFull(s.reader, chunk.Data)
 	if e != nil {
@@ -100,6 +101,10 @@ func (s *Stream) ReadChunk() (chunk *Chunk, err error) {
 	}
 
 	return chunk, nil
+}
+
+func (s *Stream) GetServerName() string {
+	return s.res.Header.Get("Server")
 }
 
 func (s *Stream) Close() {

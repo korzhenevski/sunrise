@@ -59,7 +59,7 @@ func (r *RpcClient) DialRetry() {
 }
 
 func (r *RpcClient) Call(serviceMethod string, args interface{}, reply interface{}) error {
-	startTime := time.Now()
+	// startTime := time.Now()
 	var err error
 	for {
 		r.mutex.Lock()
@@ -71,6 +71,6 @@ func (r *RpcClient) Call(serviceMethod string, args interface{}, reply interface
 		}
 		break
 	}
-	log.Printf("rpc %s: %.3f ms", serviceMethod, (float64)(time.Now().Sub(startTime))/1e6)
+	//log.Printf("rpc %s: %.3f ms", serviceMethod, (float64)(time.Now().Sub(startTime))/1e6)
 	return err
 }
