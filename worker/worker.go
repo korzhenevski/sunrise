@@ -6,11 +6,6 @@ import (
 	"time"
 )
 
-type WorkerTask interface {
-	Stop()
-	Run()
-}
-
 type Worker struct {
 	Client   *RpcClient
 	ServerId uint32
@@ -51,7 +46,7 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 
 	go func() {
 		for {
-			// log.Println("request task")
+			log.Println("request task")
 			task := new(manager.Task)
 			err = w.Client.Call("Tracker.ReserveTask", w.ServerId, task)
 			if err != nil {
@@ -74,7 +69,7 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 
 func (w *Worker) SpawnTask(task *manager.Task) {
 	log.Printf("Spawn new task: %+v", task)
-	t := NewRipper(task, w.Client)
+	t := NewRipper(task, w)
 	w.tasks[task.Id] = t
 	go t.Run()
 }
@@ -103,6 +98,17 @@ func (w *Worker) SendTaskTouch() {
 			delete(w.tasks, tid)
 			log.Printf("stop task %d", tid)
 			task.Stop()
+		}
+	}
+}
+
+func (w *Worker) OnTaskExit(taskId uint32, err error) {
+	delete(w.tasks, taskId)
+	if err != nil {
+		res := new(manager.OpResult)
+		e := w.Client.Call("Tracker.RetryTask", taskId, res)
+		if e != nil {
+			log.Println("task retry call fail", e)
 		}
 	}
 }

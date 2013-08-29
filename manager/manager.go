@@ -7,6 +7,7 @@ import (
 	// log "github.com/golang/glog"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
+	"log"
 	"math/rand"
 	"path"
 	"strconv"
@@ -72,7 +73,7 @@ type Task struct {
 	RecordDuration   uint32 `bson:"record_duration"`
 	Time             uint32 `bson:"ts"`
 	RetryInterval    uint32 `bson:"retry_ivl"`
-	MinRetryInterval uint32 `bson:"min_retry_ivl`
+	MinRetryInterval uint32 `bson:"min_retry_ivl"`
 	MaxRetryInterval uint32 `bson:"max_retry_ivl"`
 	OpResult
 }
@@ -457,8 +458,9 @@ func (m *Manager) RetryTask(taskId uint32, res *OpResult) error {
 		return err
 	}
 
-	task.NextRetryInterval()
-	update := bson.M{"ts": getTs() + task.RetryInterval, "retry_ivl": task.RetryInterval}
+	ivl := task.NextRetryInterval()
+	log.Printf("retry task after %d\n", ivl)
+	update := bson.M{"$set": bson.M{"ts": getTs() + ivl, "retry_ivl": ivl}}
 	if err := m.q.UpdateId(taskId, update); err != nil {
 		return err
 	}

@@ -1,7 +1,15 @@
 package worker
 
 // spawn name worker<>ripper
-
+// add task retry
+// add task result (log http headers)
+// add glog
+// корректное завершение воркера
+// air и record завершаются, новые записи не создаются
+// при резервировании писать worker session - ws_id
+// touch тоже делать с ws_id
+// везде писать task_id ws_id
+// возвращаем составной айдишник - <task_id>_<worker_id>_<wrk_req_id>
 import (
 	"errors"
 	"github.com/outself/sunrise/manager"
@@ -16,7 +24,7 @@ type Ripper struct {
 	task   *manager.Task
 	dumper *radio.Dumper
 	stream *radio.Stream
-	client *RpcClient
+	worker *Worker
 	meta   string
 	metaTs int64
 	track  *manager.TrackResult
@@ -24,10 +32,10 @@ type Ripper struct {
 	hasher hash.Hash32
 }
 
-func NewRipper(task *manager.Task, client *RpcClient) *Ripper {
+func NewRipper(task *manager.Task, worker *Worker) *Ripper {
 	return &Ripper{
 		task:   task,
-		client: client,
+		worker: worker,
 		dumper: &radio.Dumper{},
 		track:  &manager.TrackResult{},
 		stop:   make(chan bool, 1),
@@ -46,7 +54,7 @@ func (w *Ripper) Stop() {
 
 func (w *Ripper) Run() {
 	log.Printf("connecting to %s...", w.task.StreamUrl)
-	defer w.checkRipperError()
+	defer w.errorHandler()
 	defer w.dumper.Close()
 
 	var err error
@@ -130,7 +138,7 @@ func (w *Ripper) newTrack() error {
 	w.metaTs = time.Now().Unix()
 
 	w.track = new(manager.TrackResult)
-	err := w.client.Call("Tracker.NewTrack", data, w.track)
+	err := w.worker.Client.Call("Tracker.NewTrack", data, w.track)
 	if err != nil {
 		return err
 	}
@@ -148,9 +156,11 @@ func (w *Ripper) getDuration() uint32 {
 	return uint32(time.Now().Unix() - w.metaTs)
 }
 
-func (w *Ripper) checkRipperError() {
-	if err := recover(); err != nil {
-		log.Printf("worker error (task_id: %d '%s') - %s\n", w.task.Id, w.task.StreamUrl, err)
+func (w *Ripper) errorHandler() {
+	err := recover()
+	if err != nil {
+		log.Printf("error (task_id: %d '%s') - %s", w.task.Id, w.task.StreamUrl, err)
 	}
+	w.worker.OnTaskExit(w.task.Id, err.(error))
 	log.Println("worker exit")
 }
