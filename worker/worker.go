@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"fmt"
 	"github.com/outself/sunrise/manager"
 	"log"
 	"time"
@@ -46,7 +47,7 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 
 	go func() {
 		for {
-			log.Println("request task")
+			// log.Println("request task")
 			task := new(manager.Task)
 			err = w.Client.Call("Tracker.ReserveTask", w.ServerId, task)
 			if err != nil {
@@ -102,11 +103,15 @@ func (w *Worker) SendTaskTouch() {
 	}
 }
 
-func (w *Worker) OnTaskExit(taskId uint32, err error) {
+func (w *Worker) OnTaskExit(taskId uint32, err interface{}) {
 	delete(w.tasks, taskId)
 	if err != nil {
 		res := new(manager.OpResult)
-		e := w.Client.Call("Tracker.RetryTask", taskId, res)
+		req := manager.RetryRequest{
+			TaskId: taskId,
+			Error:  fmt.Sprintf("%s", err),
+		}
+		e := w.Client.Call("Tracker.RetryTask", req, res)
 		if e != nil {
 			log.Println("task retry call fail", e)
 		}

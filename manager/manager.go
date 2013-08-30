@@ -5,6 +5,7 @@ import (
 	// TODO: really use?
 	// "github.com/cybersiddhu/golang-set"
 	// log "github.com/golang/glog"
+	"github.com/outself/sunrise/http2"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"log"
@@ -26,7 +27,6 @@ import (
 // Normalize Meta: http://godoc.org/code.google.com/p/go.text/unicode/norm
 
 // Listen records from any point
-// Durable worker
 // Extract queue specific logic to Worker class
 // Test with 1024 streams
 
@@ -45,6 +45,7 @@ type Manager struct {
 	records *mgo.Collection
 	servers *mgo.Collection
 	volumes *mgo.Collection
+	tasklog *mgo.Collection
 }
 
 func New(db *mgo.Database) *Manager {
@@ -56,6 +57,7 @@ func New(db *mgo.Database) *Manager {
 	manager.records = db.C("records")
 	manager.servers = db.C("servers")
 	manager.volumes = db.C("volumes")
+	manager.tasklog = db.C("tasklog")
 
 	return manager
 }
@@ -406,10 +408,6 @@ type TouchResult struct {
 	Success        bool
 }
 
-type TaskResult struct {
-	TaskId uint32
-}
-
 // Обновляем время последней активности по списку задач от воркера
 // Возвращает список неактивных задач
 func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
@@ -438,7 +436,11 @@ func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
 	}
 
 	// обновляем время для всех задач
-	if _, err := m.q.UpdateAll(where, bson.M{"$set": bson.M{"ts": getTs() + TOUCH_TIMEOUT}}); err != nil {
+	update := bson.M{"$set": bson.M{
+		"ts": getTs() + TOUCH_TIMEOUT,
+		// "retry_ivl": 0,
+	}}
+	if _, err := m.q.UpdateAll(where, update); err != nil {
 		return err
 	}
 
@@ -446,25 +448,66 @@ func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
 	return nil
 }
 
+type RetryRequest struct {
+	TaskId uint32
+	Error  string
+}
+
 // Повтор задачи с экспоненциальной задержкой
 // Task.MinRetryInterval: Минимальная задержка
 // Task.RetryInterval: Текущая задержка, увеличивается случайно в диапазоне [0,75...2,25], по достижению MaxRetryInterval
-func (m *Manager) RetryTask(taskId uint32, res *OpResult) error {
+func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
+	// логируем ошибку
+	if err := m.logTaskResult(req.TaskId, bson.M{"type": "error", "error": req.Error}); err != nil {
+		return err
+	}
+
 	task := new(Task)
-	err := m.q.FindId(taskId).One(task)
+	err := m.q.FindId(req.TaskId).One(task)
 	if err == mgo.ErrNotFound {
 		return nil
 	} else if err != nil {
 		return err
 	}
 
+	// увеличиваем интервал попыток
 	ivl := task.NextRetryInterval()
 	log.Printf("retry task after %d\n", ivl)
 	update := bson.M{"$set": bson.M{"ts": getTs() + ivl, "retry_ivl": ivl}}
-	if err := m.q.UpdateId(taskId, update); err != nil {
+	if err := m.q.UpdateId(req.TaskId, update); err != nil {
 		return err
 	}
 
 	res.Success = true
+	return nil
+}
+
+type HttpResponseLog struct {
+	TaskId uint32
+	Header http2.Header
+}
+
+func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
+	// сбрасываем интервал попыток
+	m.q.UpdateId(log.TaskId, bson.M{"$set": bson.M{"retry_ivl": 0}})
+	// логируем заголовки
+	res := bson.M{"type": "http", "headers": log.Header}
+	return m.logTaskResult(log.TaskId, res)
+}
+
+func (m *Manager) logTaskResult(taskId uint32, result bson.M) error {
+	id, err := m.nextId("tasklog")
+	if err != nil {
+		return err
+	}
+
+	result["_id"] = id
+	result["task_id"] = taskId
+	result["ts"] = getTs()
+
+	if err := m.tasklog.Insert(result); err != nil {
+		return err
+	}
+
 	return nil
 }

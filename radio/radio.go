@@ -26,7 +26,7 @@ type Chunk struct {
 	Meta string
 }
 
-func TimeoutDialer(timeout time.Duration, readTimeout time.Duration) func(net, addr string) (net.Conn, error) {
+func TimeoutDialer(timeout time.Duration) func(net, addr string) (net.Conn, error) {
 	return func(netw, addr string) (net.Conn, error) {
 		conn, err := net.DialTimeout(netw, addr, timeout)
 		if err != nil {
@@ -39,7 +39,7 @@ func TimeoutDialer(timeout time.Duration, readTimeout time.Duration) func(net, a
 func NewRadio(url string) (stream *Stream, err error) {
 	client := &http2.Client{
 		Transport: &http2.Transport{
-			Dial:                TimeoutDialer(10*time.Second, 3*time.Second),
+			Dial:                TimeoutDialer(10 * time.Second),
 			DisableKeepAlives:   true,
 			MaxIdleConnsPerHost: -1,
 		},
@@ -53,7 +53,7 @@ func (r *Radio) Get() (*Stream, error) {
 	req, _ := http2.NewRequest("GET", r.Url, nil)
 
 	req.Header.Set("Icy-Metadata", "1")
-	req.Header.Set("User-Agent", "Robot/1.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_4) Chrome/29.0.1547.57 Safari/537.36")
 
 	stream := new(Stream)
 
@@ -103,8 +103,8 @@ func (s *Stream) ReadChunk() (chunk *Chunk, err error) {
 	return chunk, nil
 }
 
-func (s *Stream) GetServerName() string {
-	return s.res.Header.Get("Server")
+func (s *Stream) Header() *http2.Header {
+	return &s.res.Header
 }
 
 func (s *Stream) Close() {

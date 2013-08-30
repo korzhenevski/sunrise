@@ -32,6 +32,8 @@ type Ripper struct {
 	hasher hash.Hash32
 }
 
+type TaskResult map[string]interface{}
+
 func NewRipper(task *manager.Task, worker *Worker) *Ripper {
 	return &Ripper{
 		task:   task,
@@ -64,8 +66,9 @@ func (w *Ripper) Run() {
 	}
 	defer w.stream.Close()
 
-	log.Printf("Ripping '%s' (metaint %d, server '%s')",
-		w.task.StreamUrl, w.stream.Metaint, w.stream.GetServerName())
+	log.Printf("Ripping '%s' (metaint %d, server '%s')", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
+
+	w.logHttpResponse()
 
 	metaChanged := true
 	for {
@@ -123,44 +126,56 @@ func (w *Ripper) Run() {
 	}
 }
 
-func (w *Ripper) newTrack() error {
-	dur := w.getDuration()
+func (r *Ripper) newTrack() error {
+	dur := r.getDuration()
 	data := &manager.TrackRequest{
-		TaskId:     w.task.Id,
-		RecordId:   w.track.RecordId,
-		DumpHash:   w.hasher.Sum32(),
-		DumpSize:   w.dumper.Written,
-		StreamMeta: w.meta,
+		TaskId:     r.task.Id,
+		RecordId:   r.track.RecordId,
+		DumpHash:   r.hasher.Sum32(),
+		DumpSize:   r.dumper.Written,
+		StreamMeta: r.meta,
 		Duration:   dur,
-		TrackId:    w.track.TrackId,
+		TrackId:    r.track.TrackId,
 	}
-	w.hasher.Reset()
-	w.metaTs = time.Now().Unix()
+	r.hasher.Reset()
+	r.metaTs = time.Now().Unix()
 
-	w.track = new(manager.TrackResult)
-	err := w.worker.Client.Call("Tracker.NewTrack", data, w.track)
+	r.track = new(manager.TrackResult)
+	err := r.worker.Client.Call("Tracker.NewTrack", data, r.track)
 	if err != nil {
 		return err
 	}
 
-	if !w.track.Success {
+	if !r.track.Success {
 		return ErrNoTask
 	}
 
-	log.Printf("new track %d (%d sec): %s", w.track.TrackId, dur, w.meta)
+	log.Printf("new track %d (%d sec): %s", r.track.TrackId, dur, r.meta)
 	return nil
 }
 
-func (w *Ripper) getDuration() uint32 {
+func (r *Ripper) getDuration() uint32 {
 	// TODO(outself): replace to proper time API
-	return uint32(time.Now().Unix() - w.metaTs)
+	return uint32(time.Now().Unix() - r.metaTs)
 }
 
-func (w *Ripper) errorHandler() {
+func (r *Ripper) errorHandler() {
 	err := recover()
 	if err != nil {
-		log.Printf("error (task_id: %d '%s') - %s", w.task.Id, w.task.StreamUrl, err)
+		log.Printf("error (task_id: %d '%s') - %s", r.task.Id, r.task.StreamUrl, err)
+		r.worker.OnTaskExit(r.task.Id, err)
 	}
-	w.worker.OnTaskExit(w.task.Id, err.(error))
 	log.Println("worker exit")
+}
+
+func (r *Ripper) logHttpResponse() {
+	l := manager.HttpResponseLog{
+		TaskId: r.task.Id,
+		Header: *r.stream.Header(),
+	}
+	var reply manager.OpResult
+	err := r.worker.Client.Call("Tracker.LogHttpResponse", l, &reply)
+	if err != nil {
+		log.Println(err)
+	}
 }
