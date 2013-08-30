@@ -84,6 +84,9 @@ func (t *Task) NextRetryInterval() uint32 {
 	if t.RetryInterval < t.MaxRetryInterval {
 		if t.RetryInterval > 0 {
 			t.RetryInterval = uint32(float32(t.RetryInterval) * 1.5 * (0.5 + rand.Float32()))
+			if t.RetryInterval > t.MaxRetryInterval {
+				t.RetryInterval = t.MaxRetryInterval
+			}
 		} else {
 			t.RetryInterval = t.MinRetryInterval
 		}

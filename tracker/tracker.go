@@ -2,9 +2,9 @@ package main
 
 import (
 	"flag"
+	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
 	"labix.org/v2/mgo"
-	"log"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -13,16 +13,15 @@ import (
 import _ "net/http/pprof"
 
 func main() {
-	log.Println("Tracker RPC-Server")
-
 	dbUrl := flag.String("db", "localhost", "db url")
 	dbName := flag.String("dbname", "test", "db name")
 	listenAddr := flag.String("listen", ":4242", "rpc listen address")
 	flag.Parse()
+	defer glog.Flush()
 
 	session, err := mgo.Dial(*dbUrl)
 	if err != nil {
-		log.Fatal("mongo dial error:", err)
+		glog.Fatal("mongo dial error:", err)
 	}
 
 	rpc.RegisterName("Tracker", manager.New(session.DB(*dbName)))
@@ -30,7 +29,7 @@ func main() {
 
 	listener, err := net.Listen("tcp", *listenAddr)
 	if err != nil {
-		log.Fatal("listen error:", err)
+		glog.Fatal("listen error:", err)
 	}
 
 	http.Serve(listener, nil)
