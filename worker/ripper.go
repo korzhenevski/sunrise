@@ -1,9 +1,6 @@
 package worker
 
 // spawn name worker<>ripper
-// add task retry
-// add task result (log http headers)
-// add glog
 // корректное завершение воркера
 // air и record завершаются, новые записи не создаются
 // при резервировании писать worker session - ws_id
@@ -12,11 +9,11 @@ package worker
 // возвращаем составной айдишник - <task_id>_<worker_id>_<wrk_req_id>
 import (
 	"errors"
+	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
 	"github.com/outself/sunrise/radio"
 	"github.com/vova616/xxhash"
 	"hash"
-	"log"
 	"time"
 )
 
@@ -55,7 +52,7 @@ func (w *Ripper) Stop() {
 }
 
 func (w *Ripper) Run() {
-	log.Printf("connecting to %s...", w.task.StreamUrl)
+	glog.V(2).Info("connect %s", w.task.StreamUrl)
 	defer w.errorHandler()
 	defer w.dumper.Close()
 
@@ -66,15 +63,14 @@ func (w *Ripper) Run() {
 	}
 	defer w.stream.Close()
 
-	log.Printf("Ripping '%s' (metaint %d, server '%s')", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
-
+	glog.Infof("Ripping '%s' metaint %d, server '%s'", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
 	w.logHttpResponse()
 
 	metaChanged := true
 	for {
 		select {
 		case <-w.stop:
-			log.Printf("%d quit", w.task.Id)
+			glog.V(2).Info("task %d quit", w.task.Id)
 			return
 		default:
 			// nothing
@@ -95,12 +91,14 @@ func (w *Ripper) Run() {
 
 		// change meta, if present
 		if len(chunk.Meta) > 0 && w.meta != chunk.Meta {
+			glog.V(2).Infof("task %d stream meta changed", w.task.Id)
 			w.meta = chunk.Meta
 			metaChanged = true
 		}
 
 		// force rotate
 		if w.track.LimitRecordDuration >= 0 && w.getDuration() >= w.track.LimitRecordDuration {
+			glog.V(2).Infof("task %d record duration limit exceed", w.task.Id)
 			metaChanged = true
 		}
 
@@ -108,6 +106,7 @@ func (w *Ripper) Run() {
 		if metaChanged {
 			err := w.newTrack()
 			if err == ErrNoTask {
+				glog.Warningf("task %d new track return no task", w.task.Id)
 				break
 			} else if err != nil {
 				panic(err)
@@ -115,9 +114,10 @@ func (w *Ripper) Run() {
 
 			// change dump path
 			if len(w.track.RecordPath) > 0 {
-				log.Printf("Record path: %s", w.track.RecordPath)
+				glog.Infof("task %d record path %s", w.task.Id, w.track.RecordPath)
 				w.dumper.Open(w.track.RecordPath)
 			} else {
+				glog.V(2).Infof("task %d record closed", w.task.Id)
 				w.dumper.Close()
 			}
 
@@ -150,7 +150,7 @@ func (r *Ripper) newTrack() error {
 		return ErrNoTask
 	}
 
-	log.Printf("new track %d (%d sec): %s", r.track.TrackId, dur, r.meta)
+	glog.Infof("task %d new track %d: '%s'", r.task.Id, r.track.TrackId, r.meta)
 	return nil
 }
 
@@ -162,10 +162,10 @@ func (r *Ripper) getDuration() uint32 {
 func (r *Ripper) errorHandler() {
 	err := recover()
 	if err != nil {
-		log.Printf("error (task_id: %d '%s') - %s", r.task.Id, r.task.StreamUrl, err)
-		r.worker.OnTaskExit(r.task.Id, err)
+		glog.Errorf("task_id: %d url: %s - %s", r.task.Id, r.task.StreamUrl, err)
 	}
-	log.Println("worker exit")
+	r.worker.OnTaskExit(r.task.Id, err)
+	glog.Infof("task %d exitted", r.task.Id)
 }
 
 func (r *Ripper) logHttpResponse() {
@@ -176,6 +176,6 @@ func (r *Ripper) logHttpResponse() {
 	var reply manager.OpResult
 	err := r.worker.Client.Call("Tracker.LogHttpResponse", l, &reply)
 	if err != nil {
-		log.Println(err)
+		glog.Error(err)
 	}
 }

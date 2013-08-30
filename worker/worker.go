@@ -2,8 +2,8 @@ package worker
 
 import (
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
-	"log"
 	"time"
 )
 
@@ -47,11 +47,11 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 
 	go func() {
 		for {
-			// log.Println("request task")
+			glog.V(2).Info("request task")
 			task := new(manager.Task)
 			err = w.Client.Call("Tracker.ReserveTask", w.ServerId, task)
 			if err != nil {
-				log.Println(err)
+				glog.Warning(err)
 				time.Sleep(wait)
 				continue
 			}
@@ -69,16 +69,14 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 }
 
 func (w *Worker) SpawnTask(task *manager.Task) {
-	log.Printf("Spawn new task: %+v", task)
+	glog.Infof("Spawn new task: %+v", task)
 	t := NewRipper(task, w)
 	w.tasks[task.Id] = t
 	go t.Run()
 }
 
 func (w *Worker) SendTaskTouch() {
-	// log.Println("touch")
-	// log.Printf("touch. %d running", len(w.tasks))
-
+	glog.V(2).Infof("send %d task touch request", len(w.tasks))
 	if len(w.tasks) == 0 {
 		return
 	}
@@ -90,14 +88,14 @@ func (w *Worker) SendTaskTouch() {
 
 	res := new(manager.TouchResult)
 	if err := w.Client.Call("Tracker.TouchTask", req, res); err != nil {
-		log.Println(err)
+		glog.Warning(err)
 		return
 	}
 
 	for _, tid := range res.ObsoleteTaskId {
 		if task, ok := w.tasks[tid]; ok {
 			delete(w.tasks, tid)
-			log.Printf("stop task %d", tid)
+			glog.V(2).Infof("stop task %d", tid)
 			task.Stop()
 		}
 	}
@@ -113,7 +111,7 @@ func (w *Worker) OnTaskExit(taskId uint32, err interface{}) {
 		}
 		e := w.Client.Call("Tracker.RetryTask", req, res)
 		if e != nil {
-			log.Println("task retry call fail", e)
+			glog.Warning("task retry call fail", e)
 		}
 	}
 }

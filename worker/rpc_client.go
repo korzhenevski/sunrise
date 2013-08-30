@@ -1,8 +1,8 @@
 package worker
 
 import (
+	"github.com/golang/glog"
 	"io"
-	"log"
 	"net/rpc"
 	"sync"
 	"time"
@@ -24,7 +24,7 @@ func (r *RpcClient) Dial() {
 	var err error
 	r.Client, err = rpc.DialHTTP("tcp", r.Addr)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 }
 
@@ -41,14 +41,14 @@ func (r *RpcClient) DialRetry() {
 	retry := 0
 	wait := 0
 	for retry < r.MaxRetries {
-		log.Printf("dial '%s'... retry %d after %dms wait", r.Addr, retry, wait)
+		glog.Warningf("dial '%s'... retry %d after %dms wait", r.Addr, retry, wait)
 		r.Client, err = rpc.DialHTTP("tcp", r.Addr)
 		if err != nil {
 			retry += 1
 			wait = 500 * retry
 			time.Sleep(time.Duration(wait) * time.Millisecond)
 		} else {
-			log.Println("rpc reconnected")
+			glog.Info("rpc reconnected")
 			return
 		}
 	}
@@ -59,7 +59,7 @@ func (r *RpcClient) DialRetry() {
 }
 
 func (r *RpcClient) Call(serviceMethod string, args interface{}, reply interface{}) error {
-	// startTime := time.Now()
+	startTime := time.Now()
 	var err error
 	for {
 		r.mutex.Lock()
@@ -71,6 +71,7 @@ func (r *RpcClient) Call(serviceMethod string, args interface{}, reply interface
 		}
 		break
 	}
-	//log.Printf("rpc %s: %.3f ms", serviceMethod, (float64)(time.Now().Sub(startTime))/1e6)
+
+	glog.V(2).Infof("rpc %s: %.3f ms", serviceMethod, (float64)(time.Now().Sub(startTime))/1e6)
 	return err
 }
