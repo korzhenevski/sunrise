@@ -4,11 +4,10 @@ import (
 	"errors"
 	// TODO: really use?
 	// "github.com/cybersiddhu/golang-set"
-	// log "github.com/golang/glog"
+	"github.com/golang/glog"
 	"github.com/outself/sunrise/http2"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"log"
 	"math/rand"
 	"path"
 	"strconv"
@@ -107,6 +106,7 @@ type TrackRequest struct {
 	// Продолжительность записи
 	Duration uint32
 	TrackId  uint32
+	Dup      bool
 }
 
 type TrackResult struct {
@@ -146,12 +146,18 @@ type Record struct {
 	ServerId uint32 `bson:"server_id"`
 	// Раздел записи
 	VolumeId uint32 `bson:"vol_id"`
+	// айдишник трека
+	TrackId uint32 `bson:"track_id"`
+	// Кешированный путь в разделе (vol)
+	Path string `bson:"path"`
 	// Хеш (xxhash)
 	Hash uint32 `bson:"hash"`
 	// Размер в Байтах
-	Size  uint32 `bson:"size"`
-	Time  uint32 `bson:"ts"`
-	Ended bool   `bson:"end"`
+	Size     uint32 `bson:"size"`
+	StreamId uint32 `bson:"stream_id"`
+	Time     uint32 `bson:"ts"`
+	EndTime  uint32 `bson:"end_ts"`
+	Ended    bool   `bson:"end"`
 }
 
 // Раздел записи
@@ -180,7 +186,7 @@ type NextId struct {
 
 func GetRecordPath(recordId uint32, baseDir string) string {
 	id := strconv.Itoa(int(recordId))
-	return path.Join(baseDir, id[0:1], id+".mp3")
+	return path.Join(baseDir, id[len(id)-1:], id+".mp3")
 }
 
 func getTs() uint32 {
@@ -263,6 +269,8 @@ func (m *Manager) RemoveTask(taskId uint32, result *OpResult) error {
 	return nil
 }
 
+// TODO: может не создавать трек на lrd (limit record duration) записи ?
+// или помечать как-то особенно? dup=true?
 func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	ts := getTs()
 	title := ExtractStreamTitle(req.StreamMeta)
@@ -287,13 +295,13 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 			return err
 		}
 
-		record, err := m.newRecord(task.ServerId, vol.Id)
+		record, err := m.newRecord(trackId, task.StreamId, task.ServerId, vol)
 		if err != nil {
 			return err
 		}
 
 		result.RecordId = record.Id
-		result.RecordPath = GetRecordPath(record.Id, vol.Path)
+		result.RecordPath = record.Path
 		result.LimitRecordDuration = task.RecordDuration
 	}
 
@@ -302,29 +310,31 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	// save air record
 	track := &Track{
 		Id:       trackId,
-		StreamId: task.StreamId,
 		Title:    title,
 		Time:     ts,
 		EndTime:  0,
 		RecordId: result.RecordId,
 		PrevId:   req.TrackId,
+		StreamId: task.StreamId,
+		TaskId:   task.Id,
 		Ended:    false,
 	}
 	if err := m.air.Insert(track); err != nil {
 		return err
 	}
 
-	// end previous
+	// завершение предыдущей записи
 	if req.TrackId != 0 {
-		// end air
+		// завершаем трек
 		change := bson.M{"$set": bson.M{"end": true, "end_ts": ts, "duration": req.Duration}}
 		if err := m.air.UpdateId(req.TrackId, change); err != nil {
 			return err
 		}
 
 		if req.RecordId > 0 {
+			// завершаем запись
 			m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{
-				"size": req.DumpSize, "hash": req.DumpHash, "end": true}})
+				"size": req.DumpSize, "hash": req.DumpHash, "end": true, "end_ts": ts}})
 			if err != nil {
 				return err
 			}
@@ -333,6 +343,30 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 
 	result.Success = true
 	return nil
+}
+
+func (m *Manager) newRecord(trackId uint32, streamId uint32, serverId uint32, vol *Volume) (*Record, error) {
+	recordId, err := m.nextId("records")
+	if err != nil {
+		return nil, err
+	}
+
+	record := &Record{
+		Id:       recordId,
+		ServerId: serverId,
+		VolumeId: vol.Id,
+		Time:     uint32(time.Now().Unix()),
+		Ended:    false,
+		Path:     GetRecordPath(recordId, vol.Path),
+		TrackId:  trackId,
+		StreamId: streamId,
+	}
+
+	if err := m.records.Insert(record); err != nil {
+		return nil, err
+	}
+
+	return record, nil
 }
 
 func (m *Manager) selectUploadVolume(serverId uint32) (*Volume, error) {
@@ -359,26 +393,6 @@ func (m *Manager) selectVolume(serverId uint32, upload bool) (*Volume, error) {
 	}
 	// random distribution
 	return &result[rand.Intn(len(result))], nil
-}
-
-func (m *Manager) newRecord(serverId uint32, volumeId uint32) (*Record, error) {
-	record := &Record{
-		ServerId: serverId,
-		VolumeId: volumeId,
-		Time:     uint32(time.Now().Unix()),
-		Ended:    false,
-	}
-
-	var err error
-	if record.Id, err = m.nextId("records"); err != nil {
-		return nil, err
-	}
-
-	if err := m.records.Insert(record); err != nil {
-		return nil, err
-	}
-
-	return record, nil
 }
 
 // add backoff retry
@@ -475,7 +489,7 @@ func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
 
 	// увеличиваем интервал попыток
 	ivl := task.NextRetryInterval()
-	log.Printf("retry task after %d\n", ivl)
+	glog.Infof("retry task after %d", ivl)
 	update := bson.M{"$set": bson.M{"ts": getTs() + ivl, "retry_ivl": ivl}}
 	if err := m.q.UpdateId(req.TaskId, update); err != nil {
 		return err
@@ -512,5 +526,29 @@ func (m *Manager) logTaskResult(taskId uint32, result bson.M) error {
 		return err
 	}
 
+	return nil
+}
+
+type RecordRequest struct {
+	StreamId uint32
+	From     time.Time
+	To       time.Time
+}
+
+type RecordReply struct {
+	Record []Record
+}
+
+func (m *Manager) GetRecord(req RecordRequest, reply *RecordReply) error {
+	where := bson.M{
+		"stream_id": req.StreamId,
+		"end":       true,
+		"ts":        bson.M{"$gte": uint32(req.From.Unix())},
+		"end_ts":    bson.M{"$lte": uint32(req.To.Unix())},
+	}
+	err := m.records.Find(where).Sort("ts").Iter().All(&reply.Record)
+	if err != nil {
+		return err
+	}
 	return nil
 }

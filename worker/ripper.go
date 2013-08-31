@@ -67,6 +67,7 @@ func (w *Ripper) Run() {
 	w.logHttpResponse()
 
 	metaChanged := true
+	dup := false
 	for {
 		select {
 		case <-w.stop:
@@ -100,11 +101,12 @@ func (w *Ripper) Run() {
 		if w.track.LimitRecordDuration >= 0 && w.getDuration() >= w.track.LimitRecordDuration {
 			glog.V(2).Infof("task %d record duration limit exceed", w.task.Id)
 			metaChanged = true
+			dup = true
 		}
 
 		// track meta
 		if metaChanged {
-			err := w.newTrack()
+			err := w.newTrack(dup)
 			if err == ErrNoTask {
 				glog.Warningf("task %d new track return no task", w.task.Id)
 				break
@@ -122,11 +124,12 @@ func (w *Ripper) Run() {
 			}
 
 			metaChanged = false
+			dup = false
 		}
 	}
 }
 
-func (r *Ripper) newTrack() error {
+func (r *Ripper) newTrack(dup bool) error {
 	dur := r.getDuration()
 	data := &manager.TrackRequest{
 		TaskId:     r.task.Id,
@@ -136,6 +139,7 @@ func (r *Ripper) newTrack() error {
 		StreamMeta: r.meta,
 		Duration:   dur,
 		TrackId:    r.track.TrackId,
+		Dup:        dup,
 	}
 	r.hasher.Reset()
 	r.metaTs = time.Now().Unix()

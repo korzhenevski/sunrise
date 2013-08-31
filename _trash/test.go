@@ -2,11 +2,13 @@ package main
 
 import (
 	"log"
-	"math/rand"
-	"time"
+	// "math/rand"
+	// "time"
 )
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-	log.Println(rand.Float32())
+	s := "100034"
+	log.Print(s[len(s)-1:])
+	// rand.Seed(time.Now().UnixNano())
+	// log.Println(rand.Float32())
 }

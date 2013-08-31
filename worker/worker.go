@@ -1,14 +1,14 @@
 package worker
 
 import (
-	"fmt"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
+	"github.com/outself/sunrise/rpc2"
 	"time"
 )
 
 type Worker struct {
-	Client   *RpcClient
+	Client   *rpc2.Client
 	ServerId uint32
 	tasks    map[uint32]*Ripper
 	stop     chan bool
@@ -17,7 +17,7 @@ type Worker struct {
 func NewWorker(serverId uint32, serverAddr string) *Worker {
 	return &Worker{
 		ServerId: serverId,
-		Client:   NewRpcClient(serverAddr),
+		Client:   rpc2.NewClient(serverAddr),
 		tasks:    make(map[uint32]*Ripper),
 		stop:     make(chan bool),
 	}
@@ -107,7 +107,7 @@ func (w *Worker) OnTaskExit(taskId uint32, err interface{}) {
 		res := new(manager.OpResult)
 		req := manager.RetryRequest{
 			TaskId: taskId,
-			Error:  fmt.Sprintf("%s", err),
+			Error:  err.(error).Error(),
 		}
 		e := w.Client.Call("Tracker.RetryTask", req, res)
 		if e != nil {
