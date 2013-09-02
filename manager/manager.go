@@ -4,8 +4,11 @@ import (
 	"errors"
 	// TODO: really use?
 	// "github.com/cybersiddhu/golang-set"
+	crypto_rand "crypto/rand"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/http2"
+	"github.com/vova616/xxhash"
+	"io"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"math/rand"
@@ -51,6 +54,8 @@ func New(db *mgo.Database) *Manager {
 	manager := &Manager{}
 
 	manager.q = db.C("queue")
+	manager.q.EnsureIndexKey("task_id")
+
 	manager.air = db.C("air")
 	manager.ids = db.C("ids")
 	manager.records = db.C("records")
@@ -66,7 +71,8 @@ type OpResult struct {
 }
 
 type Task struct {
-	Id               uint32 `bson:"_id"`
+	QueueId          uint32 `bson:"_id"`
+	Id               uint32 `bson:"task_id"`
 	StreamUrl        string `bson:"url"`
 	StreamId         uint32 `bson:"stream_id"`
 	ServerId         uint32 `bson:"server_id"`
@@ -146,6 +152,7 @@ type Record struct {
 	ServerId uint32 `bson:"server_id"`
 	// Раздел записи
 	VolumeId uint32 `bson:"vol_id"`
+	TaskId   uint32 `bson:"task_id"`
 	// айдишник трека
 	TrackId uint32 `bson:"track_id"`
 	// Кешированный путь в разделе (vol)
@@ -211,7 +218,7 @@ func (m *Manager) nextId(kind string) (uint32, error) {
 }
 
 type PutResult struct {
-	TaskId  uint32
+	QueueId uint32
 	Success bool
 }
 
@@ -233,7 +240,7 @@ func (m *Manager) PutTask(task Task, res *PutResult) error {
 		return err
 	}
 
-	task.Id, err = m.nextId("task")
+	task.QueueId, err = m.nextId("task")
 	if err != nil {
 		return err
 	}
@@ -242,13 +249,13 @@ func (m *Manager) PutTask(task Task, res *PutResult) error {
 		return err
 	}
 
-	res.TaskId = task.Id
+	res.QueueId = task.QueueId
 	res.Success = true
 	return nil
 }
 
-func (m *Manager) GetTask(taskId uint32, task *Task) error {
-	err := m.q.FindId(taskId).One(task)
+func (m *Manager) GetTask(queueId uint32, task *Task) error {
+	err := m.q.FindId(queueId).One(task)
 	if err == mgo.ErrNotFound {
 		return nil
 	} else if err != nil {
@@ -258,8 +265,8 @@ func (m *Manager) GetTask(taskId uint32, task *Task) error {
 	return nil
 }
 
-func (m *Manager) RemoveTask(taskId uint32, result *OpResult) error {
-	err := m.q.RemoveId(taskId)
+func (m *Manager) RemoveTask(queueId uint32, result *OpResult) error {
+	err := m.q.RemoveId(queueId)
 	if err == mgo.ErrNotFound {
 		return nil
 	} else if err != nil {
@@ -276,7 +283,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	title := ExtractStreamTitle(req.StreamMeta)
 
 	task := new(Task)
-	err := m.q.FindId(req.TaskId).One(&task)
+	err := m.q.Find(bson.M{"task_id": req.TaskId}).One(&task)
 	if err == mgo.ErrNotFound {
 		result.Success = false
 		return nil
@@ -295,7 +302,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 			return err
 		}
 
-		record, err := m.newRecord(trackId, task.StreamId, task.ServerId, vol)
+		record, err := m.newRecord(trackId, task, vol)
 		if err != nil {
 			return err
 		}
@@ -345,7 +352,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	return nil
 }
 
-func (m *Manager) newRecord(trackId uint32, streamId uint32, serverId uint32, vol *Volume) (*Record, error) {
+func (m *Manager) newRecord(trackId uint32, task *Task, vol *Volume) (*Record, error) {
 	recordId, err := m.nextId("records")
 	if err != nil {
 		return nil, err
@@ -353,13 +360,14 @@ func (m *Manager) newRecord(trackId uint32, streamId uint32, serverId uint32, vo
 
 	record := &Record{
 		Id:       recordId,
-		ServerId: serverId,
+		ServerId: task.ServerId,
+		TaskId:   task.Id,
 		VolumeId: vol.Id,
 		Time:     uint32(time.Now().Unix()),
 		Ended:    false,
 		Path:     GetRecordPath(recordId, vol.Path),
 		TrackId:  trackId,
-		StreamId: streamId,
+		StreamId: task.StreamId,
 	}
 
 	if err := m.records.Insert(record); err != nil {
@@ -395,12 +403,25 @@ func (m *Manager) selectVolume(serverId uint32, upload bool) (*Volume, error) {
 	return &result[rand.Intn(len(result))], nil
 }
 
-// add backoff retry
-func (m *Manager) ReserveTask(serverId uint32, task *Task) error {
+type ReserveRequest struct {
+	ServerId uint32
+	WorkerId uint32
+}
+
+func genTaskId(workerId uint32) uint32 {
+	b := make([]byte, 10)
+	_, err := io.ReadFull(crypto_rand.Reader, b)
+	if err != nil {
+		panic(err)
+	}
+	return xxhash.Checksum32Seed(b, workerId)
+}
+
+func (m *Manager) ReserveTask(req ReserveRequest, task *Task) error {
 	ts := getTs()
-	where := bson.M{"ts": bson.M{"$lt": ts}, "server_id": serverId}
+	where := bson.M{"ts": bson.M{"$lt": ts}, "server_id": req.ServerId}
 	change := mgo.Change{
-		Update:    bson.M{"$set": bson.M{"ts": ts + TOUCH_TIMEOUT}},
+		Update:    bson.M{"$set": bson.M{"ts": ts + TOUCH_TIMEOUT, "task_id": genTaskId(req.WorkerId)}},
 		ReturnNew: true,
 	}
 
@@ -428,7 +449,7 @@ type TouchResult struct {
 // Обновляем время последней активности по списку задач от воркера
 // Возвращает список неактивных задач
 func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
-	where := bson.M{"_id": bson.M{"$in": req.TaskId}, "server_id": req.ServerId}
+	where := bson.M{"task_id": bson.M{"$in": req.TaskId}, "server_id": req.ServerId}
 
 	// делаем из taskId хеш
 	obsoleteTaskId := make(map[uint32]bool)
@@ -436,7 +457,7 @@ func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
 		obsoleteTaskId[tid] = true
 	}
 
-	iter := m.q.Find(where).Select(bson.M{"_id": 1}).Iter()
+	iter := m.q.Find(where).Select(bson.M{"task_id": 1}).Iter()
 	var t Task
 	for iter.Next(&t) {
 		// удаляем все найденные таски
@@ -480,7 +501,7 @@ func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
 	}
 
 	task := new(Task)
-	err := m.q.FindId(req.TaskId).One(task)
+	err := m.q.Find(bson.M{"task_id": req.TaskId}).One(task)
 	if err == mgo.ErrNotFound {
 		return nil
 	} else if err != nil {
@@ -491,7 +512,7 @@ func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
 	ivl := task.NextRetryInterval()
 	glog.Infof("retry task after %d", ivl)
 	update := bson.M{"$set": bson.M{"ts": getTs() + ivl, "retry_ivl": ivl}}
-	if err := m.q.UpdateId(req.TaskId, update); err != nil {
+	if err := m.q.Update(bson.M{"task_id": req.TaskId}, update); err != nil {
 		return err
 	}
 
@@ -506,7 +527,7 @@ type HttpResponseLog struct {
 
 func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
 	// сбрасываем интервал попыток
-	m.q.UpdateId(log.TaskId, bson.M{"$set": bson.M{"retry_ivl": 0}})
+	m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"retry_ivl": 0}})
 	// логируем заголовки
 	res := bson.M{"type": "http", "headers": log.Header}
 	return m.logTaskResult(log.TaskId, res)

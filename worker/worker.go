@@ -1,21 +1,29 @@
 package worker
 
 import (
+	"fmt"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
 	"github.com/outself/sunrise/rpc2"
+	"math/rand"
 	"time"
 )
 
 type Worker struct {
+	Id       uint32
 	Client   *rpc2.Client
 	ServerId uint32
 	tasks    map[uint32]*Ripper
 	stop     chan bool
 }
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 func NewWorker(serverId uint32, serverAddr string) *Worker {
 	return &Worker{
+		Id:       rand.Uint32(),
 		ServerId: serverId,
 		Client:   rpc2.NewClient(serverAddr),
 		tasks:    make(map[uint32]*Ripper),
@@ -44,12 +52,13 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 
 	wait := time.Second
 	c := make(chan *manager.Task)
+	req := manager.ReserveRequest{WorkerId: w.Id, ServerId: w.ServerId}
 
 	go func() {
 		for {
 			glog.V(2).Info("request task")
 			task := new(manager.Task)
-			err = w.Client.Call("Tracker.ReserveTask", w.ServerId, task)
+			err = w.Client.Call("Tracker.ReserveTask", req, task)
 			if err != nil {
 				glog.Warning(err)
 				time.Sleep(wait)
@@ -107,7 +116,7 @@ func (w *Worker) OnTaskExit(taskId uint32, err interface{}) {
 		res := new(manager.OpResult)
 		req := manager.RetryRequest{
 			TaskId: taskId,
-			Error:  err.(error).Error(),
+			Error:  fmt.Sprint(err),
 		}
 		e := w.Client.Call("Tracker.RetryTask", req, res)
 		if e != nil {

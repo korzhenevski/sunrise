@@ -2,9 +2,8 @@ package main
 
 import (
 	"flag"
-	// "fmt"
-	"fmt"
 	"github.com/golang/glog"
+	"github.com/kr/pretty"
 	"github.com/outself/sunrise/manager"
 	"github.com/outself/sunrise/rpc2"
 	"io"
@@ -12,44 +11,9 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
-
-type multiFileReader struct {
-	readers []io.Reader
-}
-
-func (mr *multiFileReader) Read(p []byte) (n int, err error) {
-	for len(mr.readers) > 0 {
-		n, err = mr.readers[0].Read(p)
-		if n > 0 || err != io.EOF {
-			if err == io.EOF {
-				// Don't return EOF yet. There may be more bytes
-				// in the remaining readers.
-				err = nil
-			}
-			return
-		}
-		mr.readers = mr.readers[1:]
-	}
-	return 0, io.EOF
-}
-
-// MultiReader returns a Reader that's the logical concatenation of
-// the provided input readers.  They're read sequentially.  Once all
-// inputs are drained, Read will return EOF.
-func MultiFileReader(files []string) io.Reader {
-	mr := multiFileReader{make([]io.Reader, len(files))}
-	for _, name := range files {
-		f, err := os.Open(name)
-		if err != nil {
-			glog.Errorln(err)
-		} else {
-			mr.readers = append(mr.readers, f)
-		}
-	}
-	return &mr
-}
 
 // START_1 OMIT
 // A SizeReaderAt is a ReaderAt with a Size method.
@@ -147,55 +111,85 @@ func getFormInt(key string, rw http.ResponseWriter, r *http.Request) uint64 {
 	return i
 }
 
+func part(s string) SizeReaderAt {
+	return io.NewSectionReader(strings.NewReader(s), 0, int64(len(s)))
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	sra := NewMultiReaderAt(
+		part("Hello, "), part(" world! "),
+		part("You requested "+r.URL.Path+"\n"),
+	)
+	rs := io.NewSectionReader(sra, 0, sra.Size())
+	http.ServeContent(w, r, "foo.txt", time.Now(), rs)
+}
+
+func (s *streamer) ServeHTTP2(rw http.ResponseWriter, r *http.Request) {
+	//pretty.Println(r.Header.Get("Range"), "-", r.Header.Get("User-Agent"))
+	//rw.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	//rw.Header().Set("Expires", "0")
+	//rw.Header().Set("Pragma", "no-cache")
+	//http.ServeFile(rw, r, "/tmp/volume/102/4/100424.mp3")
+	// 	streamId := getFormInt("sid", rw, r)
+	// 	ts := getFormInt("ts", rw, r)
+
+	// 	t := time.Unix(int64(ts), 0)
+	// 	req := manager.RecordRequest{StreamId: uint32(streamId), From: t, To: t.Add(84600 * time.Second)}
+	// 	reply := new(manager.RecordReply)
+
+	// 	err := s.rpc.Call("Tracker.GetRecord", req, reply)
+	// 	if err != nil {
+	// 		http.Error(rw, err.Error(), 500)
+	// 	}
+
+	// 	files := make([]SizeReaderAt, 0)
+	// 	for _, record := range reply.Record {
+	// 		files = append(files, RecordFile(&record))
+	// 		glog.V(2).Infof("rec_id: %d %s ts: %d size: %d\n", record.Id, record.Path, record.Time, record.Size)
+	// 	}
+
+	// 	sra := NewMultiReaderAt(files...)
+	// 	rs := io.NewSectionReader(sra, 0, sra.Size())
+
+	// 	rw.Header().Set("Content-Type", "audio/mpeg")
+	// 	http.ServeContent(rw, r, "", t, rs)
+}
+
 func (s *streamer) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+	pretty.Println(r.Header)
+
+	rw.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	rw.Header().Set("Expires", "0")
+	rw.Header().Set("Pragma", "no-cache")
+
 	streamId := getFormInt("sid", rw, r)
 	ts := getFormInt("ts", rw, r)
 
 	t := time.Unix(int64(ts), 0)
 	req := manager.RecordRequest{StreamId: uint32(streamId), From: t, To: t.Add(84600 * time.Second)}
 	reply := new(manager.RecordReply)
+
 	err := s.rpc.Call("Tracker.GetRecord", req, reply)
 	if err != nil {
 		http.Error(rw, err.Error(), 500)
 	}
 
-	files := make([]SizeReaderAt, 0)
-	size := uint32(0)
+	parts := make([]SizeReaderAt, 0)
 	for _, record := range reply.Record {
-		files = append(files, RecordFile(&record))
-		size += record.Size
-		fmt.Printf("%d %s %s\n", record.Id, record.Path, time.Unix(int64(record.Time), 0))
+		f, err := os.Open(record.Path)
+		if err != nil {
+			panic(err)
+		}
+		parts = append(parts, io.NewSectionReader(f, 0, int64(record.Size)))
+		//glog.V(2).Infof("rec_id: %d %s ts: %d size: %d\n", record.Id, record.Path, record.Time, record.Size)
+		glog.Infoln(record.Path)
 	}
-	fmt.Printf("total size: %d\n", size)
-	sra := NewMultiReaderAt(files...)
+
+	sra := NewMultiReaderAt(parts...)
 	rs := io.NewSectionReader(sra, 0, sra.Size())
 
-	//fmt.Fprintf(rw, "Hello, stream_id: %d, ts: %d", streamId, ts)
-	http.ServeContent(rw, r, fmt.Sprintf("%d_%d.mp3", streamId, ts), t, rs)
-	// http.ServeFile(rw, r, reply.Record[0].Path)
-}
-
-type recordFile struct {
-	file   *os.File
-	record *manager.Record
-}
-
-func (r *recordFile) ReadAt(b []byte, off int64) (int, error) {
-	return r.file.ReadAt(b, off)
-}
-
-func (r *recordFile) Size() int64 {
-	return int64(r.record.Size)
-}
-
-func RecordFile(record *manager.Record) *recordFile {
-	var err error
-	rf := &recordFile{record: record}
-	rf.file, err = os.Open(record.Path)
-	if err != nil {
-		panic(err)
-	}
-	return rf
+	rw.Header().Set("Content-Type", "audio/mpeg")
+	http.ServeContent(rw, r, "", t, rs)
 }
 
 func main() {
@@ -207,5 +201,6 @@ func main() {
 	rpc.Dial()
 
 	http.Handle("/s", Streamer(rpc))
+	http.HandleFunc("/test", handler)
 	glog.Fatal(http.ListenAndServe(":8080", nil))
 }

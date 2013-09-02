@@ -3,10 +3,6 @@ package worker
 // spawn name worker<>ripper
 // корректное завершение воркера
 // air и record завершаются, новые записи не создаются
-// при резервировании писать worker session - ws_id
-// touch тоже делать с ws_id
-// везде писать task_id ws_id
-// возвращаем составной айдишник - <task_id>_<worker_id>_<wrk_req_id>
 import (
 	"errors"
 	"github.com/golang/glog"

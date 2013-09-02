@@ -60,17 +60,17 @@ func (s *MySuite) TestPutAndGetTask(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(res.Success, Equals, true)
 
-	if res.TaskId == 0 {
+	if res.QueueId == 0 {
 		c.Error("Result TaskId is zero")
 	}
 
 	t := new(Task)
-	err = s.m.GetTask(res.TaskId, t)
+	err = s.m.GetTask(res.QueueId, t)
 	c.Assert(err, IsNil)
 	c.Assert(t.Success, Equals, true)
 
 	// explicit checking
-	task.Id = res.TaskId
+	task.QueueId = res.QueueId
 	task.Success = true
 
 	c.Check(t, DeepEquals, &task)
@@ -141,4 +141,10 @@ func (s *MySuite) TestTouchTask(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(res.Success, Equals, true)
 	c.Check(res.ObsoleteTaskId, DeepEquals, taskId)
+}
+
+func (s *MySuite) TestGenUniqTaskId(c *C) {
+	id := genTaskId(100)
+	c.Assert(id, Not(Equals), genTaskId(100))
+	c.Assert(id, Not(Equals), genTaskId(200))
 }
