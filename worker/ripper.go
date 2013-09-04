@@ -22,6 +22,7 @@ type Ripper struct {
 	metaTs int64
 	track  *manager.TrackResult
 	stop   chan bool
+	quit   chan bool
 	hasher hash.Hash32
 }
 
@@ -34,6 +35,7 @@ func NewRipper(task *manager.Task, worker *Worker) *Ripper {
 		dumper: &radio.Dumper{},
 		track:  &manager.TrackResult{},
 		stop:   make(chan bool, 1),
+		quit:   make(chan bool, 1),
 		hasher: xxhash.New(0),
 		metaTs: time.Now().Unix(),
 	}
@@ -43,17 +45,21 @@ var (
 	ErrNoTask = errors.New("defunct task")
 )
 
-func (w *Ripper) Stop() {
-	w.stop <- true
+func (r *Ripper) Stop() {
+	r.stop <- true
+	<-r.quit
 }
 
 func (w *Ripper) Run() {
 	glog.V(2).Info("connect %s", w.task.StreamUrl)
-	defer w.errorHandler()
+	// закрытие дампера должно быть после exitHandler (defer is stack)
+	// в exitHandler завершается трек и должен быть
 	defer w.dumper.Close()
+	defer w.endTrack()
+	defer w.exitHandler()
 
 	var err error
-	w.stream, err = radio.NewRadio(w.task.StreamUrl)
+	w.stream, err = radio.NewRadio(w.task.StreamUrl, w.task.UserAgent)
 	if err != nil {
 		panic(err)
 	}
@@ -67,7 +73,7 @@ func (w *Ripper) Run() {
 	for {
 		select {
 		case <-w.stop:
-			glog.V(2).Info("task %d quit", w.task.Id)
+			glog.V(2).Infof("task %d quit", w.task.Id)
 			return
 		default:
 			// nothing
@@ -125,23 +131,26 @@ func (w *Ripper) Run() {
 	}
 }
 
-func (r *Ripper) newTrack(dup bool) error {
-	dur := r.getDuration()
-	data := &manager.TrackRequest{
+func (r *Ripper) buildTrackRequest() *manager.TrackRequest {
+	return &manager.TrackRequest{
 		TaskId:     r.task.Id,
 		RecordId:   r.track.RecordId,
 		DumpHash:   r.hasher.Sum32(),
 		DumpSize:   r.dumper.Written,
 		StreamMeta: r.meta,
-		Duration:   dur,
+		Duration:   r.getDuration(),
 		TrackId:    r.track.TrackId,
-		Dup:        dup,
+		// Dup:        dup,
 	}
+}
+
+// dup unused
+func (r *Ripper) newTrack(dup bool) error {
 	r.hasher.Reset()
 	r.metaTs = time.Now().Unix()
 
 	r.track = new(manager.TrackResult)
-	err := r.worker.Client.Call("Tracker.NewTrack", data, r.track)
+	err := r.worker.Client.Call("Tracker.NewTrack", r.buildTrackRequest(), r.track)
 	if err != nil {
 		return err
 	}
@@ -154,18 +163,32 @@ func (r *Ripper) newTrack(dup bool) error {
 	return nil
 }
 
+func (r *Ripper) endTrack() {
+	if r.track.TrackId == 0 {
+		glog.V(2).Infof("task %d end track", r.task.Id)
+	}
+	glog.V(2).Infof("task %d end track %d", r.task.Id, r.track.TrackId)
+	var reply bool
+	req := r.buildTrackRequest()
+	err := r.worker.Client.Call("Tracker.EndTrack", req, &reply)
+	if err != nil {
+		glog.Warning(err)
+	}
+}
+
 func (r *Ripper) getDuration() uint32 {
 	// TODO(outself): replace to proper time API
 	return uint32(time.Now().Unix() - r.metaTs)
 }
 
-func (r *Ripper) errorHandler() {
+func (r *Ripper) exitHandler() {
 	err := recover()
 	if err != nil {
 		glog.Errorf("task_id: %d url: %s - %s", r.task.Id, r.task.StreamUrl, err)
 	}
 	r.worker.OnTaskExit(r.task.Id, err)
-	glog.Infof("task %d exitted", r.task.Id)
+	r.quit <- true
+	glog.Infof("task %d quitted", r.task.Id)
 }
 
 func (r *Ripper) logHttpResponse() {

@@ -6,6 +6,7 @@ import (
 	"github.com/outself/sunrise/manager"
 	"github.com/outself/sunrise/rpc2"
 	"math/rand"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type Worker struct {
 	ServerId uint32
 	tasks    map[uint32]*Ripper
 	stop     chan bool
+	stopped  bool
 }
 
 func init() {
@@ -46,6 +48,20 @@ func (w *Worker) Run() {
 	}
 }
 
+// корректная остановка с завершением записи
+func (w *Worker) GracefulStop() {
+	var wait sync.WaitGroup
+	w.stopped = true
+	for _, t := range w.tasks {
+		wait.Add(1)
+		go func(t *Ripper) {
+			defer wait.Done()
+			t.Stop()
+		}(t)
+	}
+	wait.Wait()
+}
+
 func (w *Worker) RequestTask() <-chan *manager.Task {
 	var err error
 	w.Client.Dial()
@@ -68,6 +84,12 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 			if !task.Success {
 				time.Sleep(wait)
 				continue
+			}
+
+			// TODO: variable or channel?
+			if w.stopped {
+				glog.Info("stop requesting tasks")
+				break
 			}
 
 			c <- task

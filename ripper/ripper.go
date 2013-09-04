@@ -4,6 +4,9 @@ import (
 	"flag"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/worker"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
@@ -17,5 +20,15 @@ func main() {
 	}
 
 	w := worker.NewWorker(uint32(*serverId), *tracker)
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	signal.Notify(sig, syscall.SIGQUIT)
+	go func() {
+		<-sig
+		w.GracefulStop()
+		os.Exit(1)
+	}()
+
 	w.Run()
 }

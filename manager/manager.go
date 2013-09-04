@@ -82,6 +82,7 @@ type Task struct {
 	RetryInterval    uint32 `bson:"retry_ivl"`
 	MinRetryInterval uint32 `bson:"min_retry_ivl"`
 	MaxRetryInterval uint32 `bson:"max_retry_ivl"`
+	UserAgent        string `bson:"user_agent"`
 	OpResult
 }
 
@@ -330,25 +331,42 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		return err
 	}
 
-	// завершение предыдущей записи
+	// завершаем трек
 	if req.TrackId != 0 {
-		// завершаем трек
-		change := bson.M{"$set": bson.M{"end": true, "end_ts": ts, "duration": req.Duration}}
-		if err := m.air.UpdateId(req.TrackId, change); err != nil {
+		if err := m.endTrack(req); err != nil {
 			return err
-		}
-
-		if req.RecordId > 0 {
-			// завершаем запись
-			m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{
-				"size": req.DumpSize, "hash": req.DumpHash, "end": true, "end_ts": ts}})
-			if err != nil {
-				return err
-			}
 		}
 	}
 
 	result.Success = true
+	return nil
+}
+
+func (m *Manager) EndTrack(req TrackRequest, reply *bool) error {
+	return m.endTrack(req)
+}
+
+func (m *Manager) endTrack(req TrackRequest) error {
+	var err error
+	ts := getTs()
+	// завершаем трек
+	err = m.air.UpdateId(req.TrackId, bson.M{"$set": bson.M{
+		"end": true, "end_ts": ts, "duration": req.Duration}})
+	if err != nil {
+		return err
+	}
+
+	if req.RecordId == 0 {
+		return nil
+	}
+
+	// завершаем запись
+	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{
+		"size": req.DumpSize, "hash": req.DumpHash, "end": true, "end_ts": ts}})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -7,12 +7,14 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Radio struct {
-	Url    string
-	Client *http2.Client
+	Url       string
+	Client    *http2.Client
+	UserAgent string
 }
 
 type Stream struct {
@@ -36,7 +38,7 @@ func TimeoutDialer(timeout time.Duration) func(net, addr string) (net.Conn, erro
 	}
 }
 
-func NewRadio(url string) (stream *Stream, err error) {
+func NewRadio(url string, userAgent string) (stream *Stream, err error) {
 	client := &http2.Client{
 		Transport: &http2.Transport{
 			Dial:                  TimeoutDialer(10 * time.Second),
@@ -45,7 +47,7 @@ func NewRadio(url string) (stream *Stream, err error) {
 			ResponseHeaderTimeout: 5 * time.Second,
 		},
 	}
-	radio := &Radio{Url: url, Client: client}
+	radio := &Radio{Url: url, Client: client, UserAgent: userAgent}
 	return radio.Get()
 }
 
@@ -54,7 +56,7 @@ func (r *Radio) Get() (*Stream, error) {
 	req, _ := http2.NewRequest("GET", r.Url, nil)
 
 	req.Header.Set("Icy-Metadata", "1")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_4) Chrome/29.0.1547.57 Safari/537.36")
+	req.Header.Set("User-Agent", r.UserAgent)
 
 	stream := new(Stream)
 
@@ -98,7 +100,7 @@ func (s *Stream) ReadChunk() (chunk *Chunk, err error) {
 		metabuf := make([]byte, metalen)
 		io.ReadFull(s.reader, metabuf)
 
-		chunk.Meta = string(metabuf)
+		chunk.Meta = strings.TrimRight(string(metabuf), "\x00")
 	}
 
 	return chunk, nil
