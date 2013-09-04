@@ -6,8 +6,8 @@ import (
 	"github.com/outself/sunrise/manager"
 	"labix.org/v2/mgo"
 	"net"
-	"net/http"
 	"net/rpc"
+	"net/rpc/jsonrpc"
 )
 
 import _ "net/http/pprof"
@@ -24,13 +24,19 @@ func main() {
 		glog.Fatal("mongo dial error:", err)
 	}
 
-	rpc.RegisterName("Tracker", manager.New(session.DB(*dbName)))
-	rpc.HandleHTTP()
+	server := rpc.NewServer()
+	server.RegisterName("Tracker", manager.New(session.DB(*dbName)))
 
-	listener, err := net.Listen("tcp", *listenAddr)
+	l, err := net.Listen("tcp", *listenAddr)
 	if err != nil {
 		glog.Fatal("listen error:", err)
 	}
 
-	http.Serve(listener, nil)
+	for {
+		if conn, err := l.Accept(); err == nil {
+			go server.ServeCodec(jsonrpc.NewServerCodec(conn))
+		} else {
+			glog.Error(err)
+		}
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/golang/glog"
 	"io"
 	"net/rpc"
+	"net/rpc/jsonrpc"
 	"sync"
 	"time"
 )
@@ -22,7 +23,7 @@ func NewClient(addr string) *Client {
 
 func (r *Client) Dial() {
 	var err error
-	r.Client, err = rpc.DialHTTP("tcp", r.Addr)
+	r.Client, err = jsonrpc.Dial("tcp", r.Addr)
 	if err != nil {
 		glog.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func (r *Client) DialRetry() {
 	wait := 0
 	for retry < r.MaxRetries {
 		glog.Warningf("retry connect after %d ms", wait)
-		r.Client, err = rpc.DialHTTP("tcp", r.Addr)
+		r.Client, err = jsonrpc.Dial("tcp", r.Addr)
 		if err != nil {
 			retry += 1
 			wait = 500 * retry

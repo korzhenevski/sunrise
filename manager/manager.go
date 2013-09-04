@@ -333,6 +333,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 
 	// завершаем трек
 	if req.TrackId != 0 {
+		glog.Info("end track")
 		if err := m.endTrack(req); err != nil {
 			return err
 		}
