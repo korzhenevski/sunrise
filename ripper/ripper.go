@@ -1,6 +1,5 @@
-package worker
+package ripper
 
-// spawn name worker<>ripper
 import (
 	"errors"
 	"github.com/golang/glog"

@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/golang/glog"
-	"github.com/outself/sunrise/worker"
+	"github.com/outself/sunrise/ripper"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,7 +19,7 @@ func main() {
 		glog.Fatal("specify server_id")
 	}
 
-	w := worker.NewWorker(uint32(*serverId), *tracker)
+	w := ripper.NewWorker(uint32(*serverId), *tracker)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
