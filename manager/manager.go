@@ -38,6 +38,7 @@ func init() {
 
 const (
 	TOUCH_TIMEOUT = 60
+	DEFAULT_UA    = "WinampMPEG/5.0"
 )
 
 type Manager struct {
@@ -457,6 +458,10 @@ func (m *Manager) ReserveTask(req ReserveRequest, task *Task) error {
 		return nil
 	} else if err != nil {
 		return err
+	}
+
+	if len(task.UserAgent) == 0 {
+		task.UserAgent = DEFAULT_UA
 	}
 
 	task.Success = true
