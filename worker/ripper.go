@@ -1,8 +1,6 @@
 package worker
 
 // spawn name worker<>ripper
-// корректное завершение воркера
-// air и record завершаются, новые записи не создаются
 import (
 	"errors"
 	"github.com/golang/glog"
