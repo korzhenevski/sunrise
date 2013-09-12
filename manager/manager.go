@@ -18,26 +18,15 @@ import (
 )
 
 // TODO
-// Get air list (q: from, to)
-// Serve air by HTTP (nginx)
-// Task backoff retry, retry logging
-
-// add to replicaCommit: record length, ID3, md5
 // add interface for add/remove Server, Volume
 // http://zookeeper.apache.org/doc/trunk/zookeeperTutorial.html#sc_producerConsumerQueues
-
-// Normalize Meta: http://godoc.org/code.google.com/p/go.text/unicode/norm
-
-// Listen records from any point
-// Extract queue specific logic to Worker class
-// Test with 1024 streams
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
 const (
-	TOUCH_TIMEOUT = 60
+	TOUCH_TIMEOUT = 30
 	DEFAULT_UA    = "WinampMPEG/5.0"
 )
 

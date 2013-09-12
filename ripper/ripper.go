@@ -60,7 +60,7 @@ func (w *Ripper) Run() {
 	}
 	defer w.stream.Close()
 
-	glog.Infof("Ripping '%s' metaint %d, server '%s'", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
+	glog.Infof("Process '%s' metaint %d, server '%s'", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
 	w.logHttpResponse()
 
 	metaChanged := true
@@ -113,7 +113,7 @@ func (w *Ripper) Run() {
 
 			// change dump path
 			if len(w.track.RecordPath) > 0 {
-				glog.Infof("task %d record path %s", w.task.Id, w.track.RecordPath)
+				glog.Infof("task %d ripping to %s", w.task.Id, w.track.RecordPath)
 				w.dumper.Open(w.track.RecordPath)
 			} else {
 				glog.V(2).Infof("task %d record closed", w.task.Id)

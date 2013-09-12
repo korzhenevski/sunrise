@@ -20,7 +20,11 @@ func main() {
 	}
 
 	w := ripper.NewWorker(uint32(*serverId), *tracker)
+	gracefulStop(w)
+	w.Run()
+}
 
+func gracefulStop(w *ripper.Worker) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	signal.Notify(sig, syscall.SIGQUIT)
@@ -29,6 +33,4 @@ func main() {
 		w.GracefulStop()
 		os.Exit(1)
 	}()
-
-	w.Run()
 }
