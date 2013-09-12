@@ -26,8 +26,6 @@ type Ripper struct {
 	hasher hash.Hash32
 }
 
-type TaskResult map[string]interface{}
-
 func NewRipper(task *manager.Task, worker *Worker) *Ripper {
 	return &Ripper{
 		task:   task,
@@ -100,8 +98,8 @@ func (w *Ripper) Run() {
 		}
 
 		// force rotate
-		if w.track.LimitRecordDuration >= 0 && w.getDuration() >= w.track.LimitRecordDuration {
-			glog.V(2).Infof("task %d record duration limit exceed", w.task.Id)
+		if w.track.LimitRecordDuration > 0 && w.getDuration() >= w.track.LimitRecordDuration {
+			glog.V(2).Infof("task %d record duration (%d) limit exceed", w.task.Id, w.track.LimitRecordDuration)
 			metaChanged = true
 			dup = true
 		}
@@ -139,6 +137,7 @@ func (r *Ripper) buildTrackRequest() *manager.TrackRequest {
 		DumpSize:   r.dumper.Written,
 		StreamMeta: r.meta,
 		Duration:   r.getDuration(),
+		VolumeId:   r.track.VolumeId,
 		TrackId:    r.track.TrackId,
 		// Dup:        dup,
 	}
@@ -149,8 +148,9 @@ func (r *Ripper) newTrack(dup bool) error {
 	r.hasher.Reset()
 	r.metaTs = time.Now().Unix()
 
+	req := r.buildTrackRequest()
 	r.track = new(manager.TrackResult)
-	err := r.worker.Client.Call("Tracker.NewTrack", r.buildTrackRequest(), r.track)
+	err := r.worker.Client.Call("Tracker.NewTrack", req, r.track)
 	if err != nil {
 		return err
 	}
@@ -159,20 +159,21 @@ func (r *Ripper) newTrack(dup bool) error {
 		return ErrNoTask
 	}
 
-	glog.Infof("task %d new track %d: '%s'", r.task.Id, r.track.TrackId, r.meta)
+	glog.Infof("task %d new track %d '%s'", r.task.Id, r.track.TrackId, r.meta)
 	return nil
 }
 
 func (r *Ripper) endTrack() {
 	if r.track.TrackId == 0 {
 		glog.V(2).Infof("task %d end track", r.task.Id)
+		return
 	}
 	glog.V(2).Infof("task %d end track %d", r.task.Id, r.track.TrackId)
 	var reply bool
 	req := r.buildTrackRequest()
 	err := r.worker.Client.Call("Tracker.EndTrack", req, &reply)
 	if err != nil {
-		glog.Warning(err)
+		glog.Warning("end track ", err)
 	}
 }
 
@@ -184,7 +185,7 @@ func (r *Ripper) getDuration() uint32 {
 func (r *Ripper) exitHandler() {
 	err := recover()
 	if err != nil {
-		glog.Errorf("task_id: %d url: %s - %s", r.task.Id, r.task.StreamUrl, err)
+		glog.Errorf("task %d url %s - %s", r.task.Id, r.task.StreamUrl, err)
 	}
 	r.worker.OnTaskExit(r.task.Id, err)
 	r.quit <- true

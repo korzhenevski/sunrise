@@ -1,14 +1,24 @@
 package main
 
 import (
-	"log"
-	// "math/rand"
-	// "time"
+//	"log"
+	"sync"
+	"time"
 )
 
 func main() {
-	s := "100034"
-	log.Print(s[len(s)-1:])
-	// rand.Seed(time.Now().UnixNano())
-	// log.Println(rand.Float32())
+	var wg sync.WaitGroup
+	for i := 0; i < 1000000; i++ {
+		wg.Add(1)
+		go func(i int){
+			defer wg.Done()
+			for {
+				select {
+					case <-time.After(600 * time.Second):
+						return
+				}	
+			}
+		}(i)
+	}
+	wg.Wait()
 }

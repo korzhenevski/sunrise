@@ -37,7 +37,7 @@ func init() {
 }
 
 const (
-	TOUCH_TIMEOUT = 10
+	TOUCH_TIMEOUT = 60
 )
 
 type Manager struct {
@@ -109,6 +109,7 @@ type TrackRequest struct {
 	// Хеш записанных данных
 	DumpHash   uint32
 	DumpSize   uint32
+	VolumeId   uint32
 	StreamMeta string
 	// Продолжительность записи
 	Duration uint32
@@ -120,6 +121,7 @@ type TrackResult struct {
 	TrackId    uint32
 	RecordId   uint32
 	RecordPath string
+	VolumeId   uint32
 	// Максимальное время записи в дамп
 	// после принудительно отправляется TrackRequest
 	LimitRecordDuration uint32
@@ -311,6 +313,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		result.RecordId = record.Id
 		result.RecordPath = record.Path
 		result.LimitRecordDuration = task.RecordDuration
+		result.VolumeId = vol.Id
 	}
 
 	result.TrackId = trackId
@@ -364,6 +367,11 @@ func (m *Manager) endTrack(req TrackRequest) error {
 	// завершаем запись
 	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{
 		"size": req.DumpSize, "hash": req.DumpHash, "end": true, "end_ts": ts}})
+	if err != nil {
+		return err
+	}
+
+	err = m.volumes.UpdateId(req.VolumeId, bson.M{"$inc": bson.M{"used": req.DumpSize}})
 	if err != nil {
 		return err
 	}

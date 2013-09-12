@@ -1,9 +1,7 @@
 import json, socket, itertools
-
 from pprint import pprint as pp
 
 class Client(object):
-
     def __init__(self, addr):
         self.socket = socket.create_connection(addr)
         self.id_counter = itertools.count()
@@ -31,6 +29,22 @@ class Client(object):
 
         return response.get('result')
 
-
 c = Client(('localhost', 4242))
-pp(c.call("Tracker.GetTask", 3))
+
+from pymongo import MongoClient
+db = MongoClient()['test']
+
+for stream in db.ss.find():
+    task = {
+        'StreamId': stream['_id'],
+        'StreamUrl': stream['url'],
+        'ServerId': 101,
+        'Record': True,
+        'RecordDuration': 3600,
+        'MinRetryInterval': 10,
+        'MaxRetryInterval': 3600,
+        'UserAgent': "robot/1.0",   
+    }
+    res = c.call("Tracker.PutTask", task)
+    db.ss.update({'_id': stream['_id']}, {'$set': {'queue_id': res['QueueId']}})
+    pp(res)
