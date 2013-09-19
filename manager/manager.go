@@ -47,8 +47,13 @@ func New(db *mgo.Database) *Manager {
 	manager.q.EnsureIndexKey("task_id")
 
 	manager.air = db.C("air")
+	manager.air.EnsureIndexKey("pub_ts")
+
 	manager.ids = db.C("ids")
 	manager.records = db.C("records")
+	manager.air.EnsureIndexKey("task_id")
+	manager.air.EnsureIndexKey("track_id")
+
 	manager.servers = db.C("servers")
 	manager.volumes = db.C("volumes")
 	manager.tasklog = db.C("tasklog")
@@ -73,7 +78,7 @@ type Task struct {
 	MinRetryInterval uint32 `bson:"min_retry_ivl"`
 	MaxRetryInterval uint32 `bson:"max_retry_ivl"`
 	UserAgent        string `bson:"user_agent"`
-	OpResult
+	OpResult         `bson:",omitempty"`
 }
 
 func (t *Task) NextRetryInterval() uint32 {
@@ -127,6 +132,7 @@ type Track struct {
 	Time     uint32 `bson:"ts"`
 	EndTime  uint32 `bson:"end_ts"`
 	RecordId uint32 `bson:"rid"`
+	PubTime  uint32 `bson:"pub_ts"`
 	// Айди предыдущего трека
 	PrevId uint32 `bson:"pid"`
 	// Трек успешно завершился
@@ -271,6 +277,7 @@ func (m *Manager) RemoveTask(queueId uint32, result *OpResult) error {
 
 // TODO: может не создавать трек на lrd (limit record duration) записи ?
 // или помечать как-то особенно? dup=true?
+// rename track to air ?
 func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	ts := getTs()
 	title := ExtractStreamTitle(req.StreamMeta)

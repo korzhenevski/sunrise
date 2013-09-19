@@ -1,12 +1,14 @@
 package ripper
 
 import (
+	"encoding/json"
 	"errors"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
 	"github.com/outself/sunrise/radio"
 	"github.com/vova616/xxhash"
 	"hash"
+	// "log"
 	"time"
 )
 
@@ -21,6 +23,18 @@ type Ripper struct {
 	stop   chan bool
 	quit   chan bool
 	hasher hash.Hash32
+}
+
+type Log map[string]interface{}
+
+func (r Log) String() (s string) {
+	b, err := json.Marshal(r)
+	if err != nil {
+		s = ""
+		return
+	}
+	s = string(b)
+	return
 }
 
 func NewRipper(task *manager.Task, worker *Worker) *Ripper {
@@ -46,6 +60,8 @@ func (r *Ripper) Stop() {
 }
 
 func (w *Ripper) Run() {
+	// log.Println(Log{"ev": "connect", "tid": w.task.Id, "url": w.task.StreamUrl})
+
 	glog.V(2).Info("connect %s", w.task.StreamUrl)
 	// закрытие дампера должно быть после exitHandler (defer is stack)
 	// в exitHandler завершается трек и должен быть
@@ -61,10 +77,11 @@ func (w *Ripper) Run() {
 	defer w.stream.Close()
 
 	glog.Infof("Process '%s' metaint %d, server '%s'", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
+	// log.Println(Log{"ev": "http_response", "tid": w.task.Id, "headers": *w.stream.Header()})
 	w.logHttpResponse()
 
 	metaChanged := true
-	dup := false
+	// firstMeta := true
 	for {
 		select {
 		case <-w.stop:
@@ -89,21 +106,35 @@ func (w *Ripper) Run() {
 
 		// change meta, if present
 		if len(chunk.Meta) > 0 && w.meta != chunk.Meta {
+			// fucking teasers
+			// if w.getDuration() >= 60 || firstMeta {
 			glog.V(2).Infof("task %d stream meta changed", w.task.Id)
 			w.meta = chunk.Meta
 			metaChanged = true
+			// 	firstMeta = false
+			// } else {
+			// 	glog.Infof("skip teaser update", w.task.Id)
+			// }
+			//log.Println(Log{"ev": "stream_meta", "tid": w.task.Id, "prev_meta": w.meta, "meta": chunk.Meta})
 		}
 
 		// force rotate
 		if w.track.LimitRecordDuration > 0 && w.getDuration() >= w.track.LimitRecordDuration {
+			// log.Println(Log{
+			// 	"ev":          "record_rotate",
+			// 	"tid":         w.task.Id,
+			// 	"record_path": w.track.RecordPath,
+			// 	"record_id":   w.track.RecordId,
+			// 	"limit":       w.track.LimitRecordDuration,
+			// 	"duration":    w.getDuration(),
+			// })
 			glog.V(2).Infof("task %d record duration (%d) limit exceed", w.task.Id, w.track.LimitRecordDuration)
 			metaChanged = true
-			dup = true
 		}
 
 		// track meta
 		if metaChanged {
-			err := w.newTrack(dup)
+			err := w.newTrack()
 			if err == ErrNoTask {
 				glog.Warningf("task %d new track return no task", w.task.Id)
 				break
@@ -121,7 +152,6 @@ func (w *Ripper) Run() {
 			}
 
 			metaChanged = false
-			dup = false
 		}
 	}
 }
@@ -136,16 +166,28 @@ func (r *Ripper) buildTrackRequest() *manager.TrackRequest {
 		Duration:   r.getDuration(),
 		VolumeId:   r.track.VolumeId,
 		TrackId:    r.track.TrackId,
-		// Dup:        dup,
 	}
 }
 
-// dup unused
-func (r *Ripper) newTrack(dup bool) error {
+func (r *Ripper) newTrack() error {
 	r.hasher.Reset()
 	r.metaTs = time.Now().Unix()
 
 	req := r.buildTrackRequest()
+
+	// log.Println(Log{
+	// 	"ev":           "new_track",
+	// 	"tid":          r.task.Id,
+	// 	"record_path":  r.track.RecordPath,
+	// 	"record_limit": r.track.LimitRecordDuration,
+	// 	"record_id":    req.RecordId,
+	// 	"meta":         req.StreamMeta,
+	// 	"dump_hash":    req.DumpHash,
+	// 	"dump_size":    req.DumpSize,
+	// 	"prev_id":      req.TrackId,
+	// 	"duration":     req.Duration,
+	// })
+
 	r.track = new(manager.TrackResult)
 	err := r.worker.Client.Call("Tracker.NewTrack", req, r.track)
 	if err != nil {
