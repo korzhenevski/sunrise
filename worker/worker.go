@@ -4,12 +4,14 @@ import (
 	"flag"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/ripper"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
 func main() {
+	log.SetFlags(0)
 	tracker := flag.String("tracker", "localhost:4242", "rpc-tracker address")
 	serverId := flag.Int("sid", 0, "server id")
 	flag.Parse()

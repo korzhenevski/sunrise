@@ -31,13 +31,14 @@ const (
 )
 
 type Manager struct {
-	q       *mgo.Collection
-	air     *mgo.Collection
-	ids     *mgo.Collection
-	records *mgo.Collection
-	servers *mgo.Collection
-	volumes *mgo.Collection
-	tasklog *mgo.Collection
+	q          *mgo.Collection
+	air        *mgo.Collection
+	ids        *mgo.Collection
+	records    *mgo.Collection
+	servers    *mgo.Collection
+	volumes    *mgo.Collection
+	tasklog    *mgo.Collection
+	streaminfo *mgo.Collection
 }
 
 func New(db *mgo.Database) *Manager {
@@ -58,7 +59,15 @@ func New(db *mgo.Database) *Manager {
 	manager.volumes = db.C("volumes")
 	manager.tasklog = db.C("tasklog")
 
+	manager.streaminfo = db.C("streaminfo")
+	manager.streaminfo.EnsureIndexKey("stream_id")
+
 	return manager
+}
+
+type StreamInfo struct {
+	Name     string `bson:"name"`
+	StreamId uint32 `bson:"stream_id"`
 }
 
 type OpResult struct {
@@ -130,14 +139,13 @@ type Track struct {
 	TaskId   uint32 `bson:"task_id"`
 	Title    string `bson:"title"`
 	Time     uint32 `bson:"ts"`
-	EndTime  uint32 `bson:"end_ts"`
 	RecordId uint32 `bson:"rid"`
 	PubTime  uint32 `bson:"pub_ts"`
 	// Айди предыдущего трека
 	PrevId uint32 `bson:"pid"`
 	// Трек успешно завершился
+	EndTime uint32 `bson:"end_ts"`
 	// следущий трек = db.air.findId({PrevId: current.Id})
-	Ended bool `bson:"end"`
 }
 
 // Треки и записи разделены для возможности удаления
@@ -163,7 +171,6 @@ type Record struct {
 	StreamId uint32 `bson:"stream_id"`
 	Time     uint32 `bson:"ts"`
 	EndTime  uint32 `bson:"end_ts"`
-	Ended    bool   `bson:"end"`
 }
 
 // Раздел записи
@@ -321,11 +328,11 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		Title:    title,
 		Time:     ts,
 		EndTime:  0,
+		PubTime:  0,
 		RecordId: result.RecordId,
 		PrevId:   req.TrackId,
 		StreamId: task.StreamId,
 		TaskId:   task.Id,
-		Ended:    false,
 	}
 	if err := m.air.Insert(track); err != nil {
 		return err
@@ -351,8 +358,7 @@ func (m *Manager) endTrack(req TrackRequest) error {
 	var err error
 	ts := getTs()
 	// завершаем трек
-	err = m.air.UpdateId(req.TrackId, bson.M{"$set": bson.M{
-		"end": true, "end_ts": ts, "duration": req.Duration}})
+	err = m.air.UpdateId(req.TrackId, bson.M{"$set": bson.M{"end_ts": ts, "duration": req.Duration}})
 	if err != nil {
 		return err
 	}
@@ -363,7 +369,7 @@ func (m *Manager) endTrack(req TrackRequest) error {
 
 	// завершаем запись
 	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{
-		"size": req.DumpSize, "hash": req.DumpHash, "end": true, "end_ts": ts}})
+		"size": req.DumpSize, "hash": req.DumpHash, "end_ts": ts}})
 	if err != nil {
 		return err
 	}
@@ -388,7 +394,6 @@ func (m *Manager) newRecord(trackId uint32, task *Task, vol *Volume) (*Record, e
 		TaskId:   task.Id,
 		VolumeId: vol.Id,
 		Time:     uint32(time.Now().Unix()),
-		Ended:    false,
 		Path:     GetRecordPath(recordId, vol.Path),
 		TrackId:  trackId,
 		StreamId: task.StreamId,
@@ -549,13 +554,30 @@ func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
 }
 
 type HttpResponseLog struct {
-	TaskId uint32
-	Header http2.Header
+	StreamId uint32
+	TaskId   uint32
+	Header   http2.Header
 }
 
 func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
 	// сбрасываем интервал попыток
 	m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"retry_ivl": 0}})
+
+	// обновляем информацию о потоке из "icy" заголовков
+	streamInfo := bson.M{
+		"name":    log.Header.Get("icy-name"),
+		"task_id": log.TaskId,
+	}
+	change := mgo.Change{
+		Update:    bson.M{"$set": streamInfo},
+		Upsert:    true,
+		ReturnNew: true,
+	}
+	result := new(StreamInfo)
+	if _, err := m.streaminfo.Find(bson.M{"_id": log.StreamId}).Apply(change, result); err != nil {
+		return err
+	}
+
 	// логируем заголовки
 	res := bson.M{"type": "http", "headers": log.Header}
 	return m.logTaskResult(log.TaskId, res)
@@ -591,7 +613,6 @@ type RecordReply struct {
 func (m *Manager) GetRecord(req RecordRequest, reply *RecordReply) error {
 	where := bson.M{
 		"stream_id": req.StreamId,
-		"end":       true,
 		"ts":        bson.M{"$gte": uint32(req.From.Unix())},
 		"end_ts":    bson.M{"$lte": uint32(req.To.Unix())},
 	}

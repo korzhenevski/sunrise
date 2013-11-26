@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+    <meta charset="UTF-8">
+    <title>manager admin</title>
+    <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css"/>
+</head>
+<body>
+    <div class="container">
+    <table class="table">
+        <tr>
+            <th>ID</th>
+            <th>URL</th>
+            <th>Server ID</th>
+            <th>Stream ID</th>
+            <th>
+                Task ID
+            </th>
+	    <th>Time</th>
+            <th>Info</th>
+        </tr>
+    {% for s in stat %}
+        <tr class="{{ s|queue_html_class }}">
+            <td>{{ s._id|int }}</td>
+            <td>{{ s.url }}</td>
+            <td>{{ s.server_id|int }}</td>
+            <td>{{ s.stream_id|int }}</td>
+            <td>{{ s.task_id|int }}</td>
+	    <td>{{ s.ts|format_ts }}</td>
+            <td>
+                <small>
+                {% if s.record %}
+                    Rec rotate: {{ s.record_duration|int }}
+                <br>
+                {% endif %}
+                retry ivl: {{ s.min_retry_ivl|int }}...{{ s.max_retry_ivl|int }}
+                {% if s.user_agent %}
+                    <br>
+                    ua: "{{ s.user_agent }}"
+                {% endif %}
+                </small>
+            </td>
+        </tr>
+        <!--tr>
+            <td colspan="6">
+
+            </td>
+        </tr-->
+    {% endfor %}
+    </table>
+</div>
+</body>
+</html>
+

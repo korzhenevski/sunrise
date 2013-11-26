@@ -3,6 +3,11 @@
 *.a
 *.so
 
+*.pyc
+*.jar
+*.txt
+*.log
+
 # Folders
 _obj
 _test

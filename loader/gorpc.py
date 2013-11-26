@@ -2,14 +2,14 @@
 
 import json, socket, itertools, re, sys
 from pprint import pprint as pp
+from zlib import crc32
+
 
 class Client(object):
     def __init__(self, addr):
         self.socket = socket.create_connection(addr)
         self.id_counter = itertools.count()
 
-    def __del__(self):
-        self.socket.close()
 
     def call(self, name, *params):
         request = dict(id=next(self.id_counter),
@@ -78,6 +78,7 @@ parser = argparse.ArgumentParser(
         )
 
 parser.add_argument('--addr', help='specify address to connect to.', default='localhost:4242')
+parser.add_argument('--urls', help='urls file')
 parser.add_argument('command', nargs='?', help='remote procedure to call')
 parser.add_argument('params', nargs='*', help='parameters for the remote call')
 
@@ -106,25 +107,32 @@ def main2():
     pp(c.call(to_camelcase(args.command), params))
 
 def main():
-    c = Client(('localhost', 4242))
     args = parser.parse_args()
+    print args
 
     host, port = args.addr.split(':')
     c = Client((host, int(port)))
-    print args
 
-    task = {
-        'StreamId': 1488,
-        'StreamUrl': args.params[0],
-        'ServerId': 101,
-        'Record': True,
-        'RecordDuration': 3600,
-        'MinRetryInterval': 10,
-        'MaxRetryInterval': 3600,
-        'UserAgent': "",
-    }
-    pp(task)
-    pp(c.call("Tracker.PutTask", task))
+    f = open(args.urls)
+
+    sid = 1
+    for i in f:
+        sid += 1
+	url = i.strip() 
+        task = {
+            'StreamId': crc32(url) & 0xFFFFFFFF,
+            'StreamUrl': url,
+            'ServerId': 1,
+	    'Record': True,
+            #'Record': True if sid < 15 else False,
+            'RecordDuration': 3600,
+            'MinRetryInterval': 10,
+            'MaxRetryInterval': 3600,
+            'UserAgent': "",
+        }
+
+        pp(task)
+        pp(c.call("Tracker.PutTask", task))
 
 if __name__ == '__main__':
     main()
