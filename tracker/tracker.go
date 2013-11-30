@@ -32,6 +32,8 @@ func main() {
 		glog.Fatal("listen error:", err)
 	}
 
+	glog.Info("tracker started...")
+
 	for {
 		if conn, err := l.Accept(); err == nil {
 			go server.ServeCodec(jsonrpc.NewServerCodec(conn))

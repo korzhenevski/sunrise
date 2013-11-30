@@ -8,6 +8,9 @@
 *.txt
 *.log
 
+tracker/tracker
+worker/worker
+
 # Folders
 _obj
 _test

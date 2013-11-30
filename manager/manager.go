@@ -4,16 +4,14 @@ import (
 	"errors"
 	// TODO: really use?
 	// "github.com/cybersiddhu/golang-set"
-	crypto_rand "crypto/rand"
+	"fmt"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/http2"
-	"github.com/vova616/xxhash"
-	"io"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"math/rand"
-	"path"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -39,6 +37,8 @@ type Manager struct {
 	volumes    *mgo.Collection
 	tasklog    *mgo.Collection
 	streaminfo *mgo.Collection
+	ch         *mgo.Collection
+	mutex      sync.Mutex
 }
 
 func New(db *mgo.Database) *Manager {
@@ -61,6 +61,9 @@ func New(db *mgo.Database) *Manager {
 
 	manager.streaminfo = db.C("streaminfo")
 	manager.streaminfo.EnsureIndexKey("stream_id")
+
+	manager.ch = db.C("ch")
+	manager.ch.EnsureIndexKey("task_id")
 
 	return manager
 }
@@ -148,31 +151,6 @@ type Track struct {
 	// следущий трек = db.air.findId({PrevId: current.Id})
 }
 
-// Треки и записи разделены для возможности удаления
-// старых аудиофайлов с сохранением истории треков
-
-// Абстракция сохраненного эфира
-// Описывает местоположение и свойства аудиофайла
-type Record struct {
-	Id uint32 `bson:"_id"`
-	// Сервер записи
-	ServerId uint32 `bson:"server_id"`
-	// Раздел записи
-	VolumeId uint32 `bson:"vol_id"`
-	TaskId   uint32 `bson:"task_id"`
-	// айдишник трека
-	TrackId uint32 `bson:"track_id"`
-	// Кешированный путь в разделе (vol)
-	Path string `bson:"path"`
-	// Хеш (xxhash)
-	Hash uint32 `bson:"hash"`
-	// Размер в Байтах
-	Size     uint32 `bson:"size"`
-	StreamId uint32 `bson:"stream_id"`
-	Time     uint32 `bson:"ts"`
-	EndTime  uint32 `bson:"end_ts"`
-}
-
 // Раздел записи
 // По факту путь примонтированного диска
 type Volume struct {
@@ -191,36 +169,6 @@ type Server struct {
 
 func (s *Server) GetRecordUrl(record *Record) string {
 	return s.Url + GetRecordPath(record.Id, strconv.Itoa(int(record.VolumeId)))
-}
-
-type NextId struct {
-	Next uint32
-}
-
-func GetRecordPath(recordId uint32, baseDir string) string {
-	id := strconv.Itoa(int(recordId))
-	return path.Join(baseDir, id[len(id)-1:], id+".mp3")
-}
-
-func getTs() uint32 {
-	return uint32(time.Now().Unix())
-}
-
-// Generate increment objectId stored in "ids" collection
-// { _id: 'object_kind', next: '<next_id>'}
-func (m *Manager) nextId(kind string) (uint32, error) {
-	change := mgo.Change{
-		Update:    bson.M{"$inc": bson.M{"next": 1}},
-		Upsert:    true,
-		ReturnNew: true,
-	}
-
-	result := new(NextId)
-	if _, err := m.ids.Find(bson.M{"_id": kind}).Apply(change, result); err != nil {
-		return 0, err
-	}
-
-	return result.Next, nil
 }
 
 type PutResult struct {
@@ -357,6 +305,9 @@ func (m *Manager) EndTrack(req TrackRequest, reply *bool) error {
 func (m *Manager) endTrack(req TrackRequest) error {
 	var err error
 	ts := getTs()
+
+	m.ch.Update(bson.M{"task_id": req.TaskId}, bson.M{"$set": bson.M{"ts": 0}})
+
 	// завершаем трек
 	err = m.air.UpdateId(req.TrackId, bson.M{"$set": bson.M{"end_ts": ts, "duration": req.Duration}})
 	if err != nil {
@@ -380,30 +331,6 @@ func (m *Manager) endTrack(req TrackRequest) error {
 	}
 
 	return nil
-}
-
-func (m *Manager) newRecord(trackId uint32, task *Task, vol *Volume) (*Record, error) {
-	recordId, err := m.nextId("records")
-	if err != nil {
-		return nil, err
-	}
-
-	record := &Record{
-		Id:       recordId,
-		ServerId: task.ServerId,
-		TaskId:   task.Id,
-		VolumeId: vol.Id,
-		Time:     uint32(time.Now().Unix()),
-		Path:     GetRecordPath(recordId, vol.Path),
-		TrackId:  trackId,
-		StreamId: task.StreamId,
-	}
-
-	if err := m.records.Insert(record); err != nil {
-		return nil, err
-	}
-
-	return record, nil
 }
 
 func (m *Manager) selectUploadVolume(serverId uint32) (*Volume, error) {
@@ -435,15 +362,6 @@ func (m *Manager) selectVolume(serverId uint32, upload bool) (*Volume, error) {
 type ReserveRequest struct {
 	ServerId uint32
 	WorkerId uint32
-}
-
-func genTaskId(workerId uint32) uint32 {
-	b := make([]byte, 10)
-	_, err := io.ReadFull(crypto_rand.Reader, b)
-	if err != nil {
-		panic(err)
-	}
-	return xxhash.Checksum32Seed(b, workerId)
 }
 
 func (m *Manager) ReserveTask(req ReserveRequest, task *Task) error {
@@ -515,6 +433,11 @@ func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
 		return err
 	}
 
+	_, err := m.ch.UpdateAll(bson.M{"task_id": bson.M{"$in": req.TaskId}}, bson.M{"$set": bson.M{"ts": getTs() + TOUCH_TIMEOUT}})
+	if err != nil {
+		return err
+	}
+
 	res.Success = true
 	return nil
 }
@@ -560,27 +483,48 @@ type HttpResponseLog struct {
 }
 
 func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	// сбрасываем интервал попыток
 	m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"retry_ivl": 0}})
 
-	// обновляем информацию о потоке из "icy" заголовков
-	streamInfo := bson.M{
-		"name":    log.Header.Get("icy-name"),
-		"task_id": log.TaskId,
+	// логируем заголовки
+	m.logTaskResult(log.TaskId, bson.M{"type": "http", "headers": log.Header})
+
+	sinfo := ExtractStreamInfo(&log.Header)
+
+	var name string
+	if sinfo.Name == "" {
+		name = fmt.Sprintf("stream:%s", log.StreamId)
+	} else {
+		name = sinfo.Name
 	}
-	change := mgo.Change{
-		Update:    bson.M{"$set": streamInfo},
-		Upsert:    true,
-		ReturnNew: true,
-	}
-	result := new(StreamInfo)
-	if _, err := m.streaminfo.Find(bson.M{"_id": log.StreamId}).Apply(change, result); err != nil {
+
+	// добавляем канал
+	m.ch.Upsert(bson.M{"name": name}, bson.M{"$setOnInsert": bson.M{"ts": 0}})
+
+	// берем лок по потоку на канал
+	cinfo, err := m.ch.UpdateAll(bson.M{
+		"name": name,
+		// "bitrate": bson.M{"$lt": sinfo.Bitrate},
+		"ts": bson.M{"$lt": getTs()},
+	}, bson.M{"$set": bson.M{
+		"stream_id": log.StreamId,
+		"task_id":   log.TaskId,
+		"ts":        getTs() + TOUCH_TIMEOUT,
+	}})
+	if err != nil {
 		return err
 	}
 
-	// логируем заголовки
-	res := bson.M{"type": "http", "headers": log.Header}
-	return m.logTaskResult(log.TaskId, res)
+	if cinfo.Updated == 0 {
+		// пробуем еще раз через 10 минут
+		m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"ts": getTs() + 600}})
+		return errors.New("skip stream mirror")
+	}
+
+	return nil
 }
 
 func (m *Manager) logTaskResult(taskId uint32, result bson.M) error {
