@@ -482,15 +482,14 @@ type HttpResponseLog struct {
 	Header   http2.Header
 }
 
-func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
+// у потока может быть куча зеркал,
+// после соединения, воркер присылает заголовки
+// извлекаем оттуда название потока (icy-name)
+// и записываем лок в базу по идентификатору задачи
+// TODO: по хорошему, раз в N минут надо проходиться по локам и обнулять неактивные
+func (m *Manager) acquireStreamChannel(log HttpResponseLog) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-
-	// сбрасываем интервал попыток
-	m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"retry_ivl": 0}})
-
-	// логируем заголовки
-	m.logTaskResult(log.TaskId, bson.M{"type": "http", "headers": log.Header})
 
 	sinfo := ExtractStreamInfo(&log.Header)
 
@@ -504,25 +503,37 @@ func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
 	// добавляем канал
 	m.ch.Upsert(bson.M{"name": name}, bson.M{"$setOnInsert": bson.M{"ts": 0}})
 
-	// берем лок по потоку на канал
-	cinfo, err := m.ch.UpdateAll(bson.M{
-		"name": name,
-		// "bitrate": bson.M{"$lt": sinfo.Bitrate},
-		"ts": bson.M{"$lt": getTs()},
-	}, bson.M{"$set": bson.M{
-		"stream_id": log.StreamId,
-		"task_id":   log.TaskId,
-		"ts":        getTs() + TOUCH_TIMEOUT,
-	}})
+	// берем лок на канал
+	cinfo, err := m.ch.UpdateAll(bson.M{"name": name, "ts": bson.M{"$lt": getTs()}}, bson.M{
+		"$set": bson.M{
+			"stream_id": log.StreamId,
+			"task_id":   log.TaskId,
+			"ts":        getTs() + TOUCH_TIMEOUT,
+		},
+	})
 	if err != nil {
 		return err
 	}
 
 	if cinfo.Updated == 0 {
 		// пробуем еще раз через 10 минут
-		m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"ts": getTs() + 600}})
+		m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{
+			"ts": getTs() + 600,
+		}})
 		return errors.New("skip stream mirror")
 	}
+
+	return nil
+}
+
+func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
+	// сбрасываем интервал попыток
+	m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"retry_ivl": 0}})
+
+	// логируем заголовки
+	m.logTaskResult(log.TaskId, bson.M{"type": "http", "headers": log.Header})
+
+	// m.acquireStreamChannel(log)
 
 	return nil
 }
@@ -541,28 +552,5 @@ func (m *Manager) logTaskResult(taskId uint32, result bson.M) error {
 		return err
 	}
 
-	return nil
-}
-
-type RecordRequest struct {
-	StreamId uint32
-	From     time.Time
-	To       time.Time
-}
-
-type RecordReply struct {
-	Record []Record
-}
-
-func (m *Manager) GetRecord(req RecordRequest, reply *RecordReply) error {
-	where := bson.M{
-		"stream_id": req.StreamId,
-		"ts":        bson.M{"$gte": uint32(req.From.Unix())},
-		"end_ts":    bson.M{"$lte": uint32(req.To.Unix())},
-	}
-	err := m.records.Find(where).Sort("ts").Iter().All(&reply.Record)
-	if err != nil {
-		return err
-	}
 	return nil
 }
