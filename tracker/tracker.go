@@ -25,7 +25,8 @@ func main() {
 	}
 
 	server := rpc.NewServer()
-	server.RegisterName("Tracker", manager.New(session.DB(*dbName)))
+	manager := manager.New(session.DB(*dbName))
+	server.RegisterName("Tracker", manager)
 
 	l, err := net.Listen("tcp", *listenAddr)
 	if err != nil {
@@ -33,6 +34,8 @@ func main() {
 	}
 
 	glog.Info("tracker started...")
+
+	go manager.LoopRespawnDeadChannels()
 
 	for {
 		if conn, err := l.Accept(); err == nil {
