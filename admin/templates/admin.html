@@ -2,52 +2,83 @@
 <html lang="en-US">
 <head>
     <meta charset="UTF-8">
-    <title>manager admin</title>
-    <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css"/>
+    <title>Sunrise</title>
 </head>
 <body>
-    <div class="container">
-    <table class="table">
-        <tr>
-            <th>ID</th>
-            <th>URL</th>
-            <th>Server ID</th>
-            <th>Stream ID</th>
-            <th>
-                Task ID
-            </th>
-	    <th>Time</th>
-            <th>Info</th>
-        </tr>
-    {% for s in stat %}
-        <tr class="{{ s|queue_html_class }}">
-            <td>{{ s._id|int }}</td>
-            <td>{{ s.url }}</td>
-            <td>{{ s.server_id|int }}</td>
-            <td>{{ s.stream_id|int }}</td>
-            <td>{{ s.task_id|int }}</td>
-	    <td>{{ s.ts|format_ts }}</td>
-            <td>
-                <small>
-                {% if s.record %}
-                    Rec rotate: {{ s.record_duration|int }}
-                <br>
-                {% endif %}
-                retry ivl: {{ s.min_retry_ivl|int }}...{{ s.max_retry_ivl|int }}
-                {% if s.user_agent %}
-                    <br>
-                    ua: "{{ s.user_agent }}"
-                {% endif %}
-                </small>
-            </td>
-        </tr>
-        <!--tr>
-            <td colspan="6">
+    <div id="grid1"></div>
 
-            </td>
-        </tr-->
-    {% endfor %}
-    </table>
+<!--     <link href="http://cdn.sencha.com/ext/gpl/4.2.0/resources/css/ext-all.css" rel="stylesheet" />
+    <script src="http://cdn.sencha.com/ext/gpl/4.2.0/ext-all.js"></script>
+ -->
+<link href="http://cdn.sencha.io/ext/gpl/4.2.0/resources/css/ext-all-neptune.css" rel="stylesheet" />
+<script src="http://cdn.sencha.com/ext/gpl/4.2.0/ext-all.js"></script>
+
+    <script type="text/javascript">
+        Ext.onReady(function(){
+            var store = Ext.create('Ext.data.JsonStore', {
+                fields: ['_id', 'url', 'stream_id', 'server_id', 'channel_id', 'record', 'ts'],
+                proxy: {
+                    type: 'ajax',
+                    url: '/queue.json',
+                    reader: {
+                        root: 'results'
+                    }
+                }
+            });            
+
+            store.load();         
+
+            var grid = Ext.create('Ext.grid.Panel', {
+                store: store,
+                columns: [
+                    {
+                        text     : 'ID',
+                        dataIndex: '_id',
+                        width: 50
+                    },
+                    {
+                        text     : 'Url',
+                        dataIndex: 'url',
+                        flex: 1
+                    },
+                    {
+                        text     : 'Server',
+                        dataIndex: 'server_id',
+                        width: 70
+                    },
+                    {
+                        text     : 'Channel',
+                        dataIndex: 'channel_id',
+                        width: 100
+                    },
+                    {
+                        xtype: 'booleancolumn',
+                        text     : 'Recording',
+                        dataIndex: 'record',
+                        width: 90
+                    },
+                    {
+                        text     : 'Time',
+                        dataIndex: 'ts',
+                        width: 150,
+                        renderer: function(value) {
+                            var date = Ext.Date.parse(value, 'U');
+                            return Ext.Date.format(date, 'd/m/Y h:i:s');
+                        }                        
+                    }
+                ],
+                height: 350,
+                width: 600,
+                title: 'Worker Queue',
+            });
+
+            new Ext.Viewport({
+                layout: 'fit',
+                items: [grid],
+                renderTo: 'grid1'                
+            });
+        });
+    </script>
 </div>
 </body>
 </html>
