@@ -14,13 +14,13 @@ var (
 )
 
 type SInfo struct {
-	Name        string
-	Url         string
-	Genre       string
-	ContentType string
-	Private     bool
-	Bitrate     int
-	Metaint     int
+	Name        string `bson:"name"`
+	Url         string `bson:"url"`
+	Genre       string `bson:"genre"`
+	ContentType string `bson:"content_type"`
+	Private     bool   `bson:"private"`
+	Bitrate     int    `bson:"bitrate"`
+	Metaint     int    `bson:"metaint"`
 }
 
 func FastHash(meta string) uint32 {

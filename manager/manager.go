@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/http2"
+	"hash/crc32"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"math/rand"
+	"path"
 	"strconv"
 	"sync"
 	"time"
@@ -24,7 +26,7 @@ func init() {
 }
 
 const (
-	TOUCH_TIMEOUT = 30
+	TOUCH_TIMEOUT = 15
 	DEFAULT_UA    = "WinampMPEG/5.0"
 )
 
@@ -38,7 +40,8 @@ type Manager struct {
 	tasklog    *mgo.Collection
 	streaminfo *mgo.Collection
 	ch         *mgo.Collection
-	mutex      sync.Mutex
+	holder     sync.Mutex
+	respawner  sync.Mutex
 }
 
 func New(db *mgo.Database) *Manager {
@@ -63,7 +66,7 @@ func New(db *mgo.Database) *Manager {
 	manager.streaminfo.EnsureIndexKey("stream_id")
 
 	manager.ch = db.C("ch")
-	manager.ch.EnsureIndexKey("task_id")
+	manager.ch.EnsureIndexKey("ts")
 
 	return manager
 }
@@ -90,6 +93,7 @@ type Task struct {
 	MinRetryInterval uint32 `bson:"min_retry_ivl"`
 	MaxRetryInterval uint32 `bson:"max_retry_ivl"`
 	UserAgent        string `bson:"user_agent"`
+	ChannelId        uint32 `bson:"channel_id"`
 	OpResult         `bson:",omitempty"`
 }
 
@@ -137,17 +141,19 @@ type TrackResult struct {
 }
 
 type Track struct {
-	Id       uint32 `bson:"_id"`
-	StreamId uint32 `bson:"stream_id"`
-	TaskId   uint32 `bson:"task_id"`
-	Title    string `bson:"title"`
-	Time     uint32 `bson:"ts"`
-	RecordId uint32 `bson:"rid"`
-	PubTime  uint32 `bson:"pub_ts"`
+	Id        uint32 `bson:"_id"`
+	StreamId  uint32 `bson:"stream_id"`
+	TaskId    uint32 `bson:"task_id"`
+	ChannelId uint32 `bson:"channel_id"`
+	Title     string `bson:"title"`
+	Time      uint32 `bson:"ts"`
+	RecordId  uint32 `bson:"rid"`
+	PubTime   uint32 `bson:"pub_ts"`
 	// Айди предыдущего трека
 	PrevId uint32 `bson:"pid"`
 	// Трек успешно завершился
 	EndTime uint32 `bson:"end_ts"`
+	Offset  uint32 `bson:"offset"`
 	// следущий трек = db.air.findId({PrevId: current.Id})
 }
 
@@ -169,6 +175,55 @@ type Server struct {
 
 func (s *Server) GetRecordUrl(record *Record) string {
 	return s.Url + GetRecordPath(record.Id, strconv.Itoa(int(record.VolumeId)))
+}
+
+// Треки и записи разделены для возможности удаления
+// старых аудиофайлов с сохранением истории треков
+
+// Абстракция сохраненного эфира
+// Описывает местоположение и свойства аудиофайла
+type Record struct {
+	Id uint32 `bson:"_id"`
+	// Сервер записи
+	ServerId uint32 `bson:"server_id"`
+	// Раздел записи
+	VolumeId uint32 `bson:"vol_id"`
+	TaskId   uint32 `bson:"task_id"`
+	// Кешированный путь в разделе (vol)
+	Path string `bson:"path"`
+	// Размер в Байтах
+	Size     uint32 `bson:"size"`
+	StreamId uint32 `bson:"stream_id"`
+	Time     uint32 `bson:"ts"`
+	EndTime  uint32 `bson:"end_ts"`
+}
+
+func GetRecordPath(recordId uint32, baseDir string) string {
+	id := strconv.Itoa(int(recordId))
+	return path.Join(baseDir, id[len(id)-1:], id+".mp3")
+}
+
+func (m *Manager) newRecord(task *Task, vol *Volume) (*Record, error) {
+	recordId, err := m.nextId("records")
+	if err != nil {
+		return nil, err
+	}
+
+	record := &Record{
+		Id:       recordId,
+		ServerId: task.ServerId,
+		TaskId:   task.Id,
+		VolumeId: vol.Id,
+		Time:     uint32(time.Now().Unix()),
+		Path:     GetRecordPath(recordId, vol.Path),
+		StreamId: task.StreamId,
+	}
+
+	if err := m.records.Insert(record); err != nil {
+		return nil, err
+	}
+
+	return record, nil
 }
 
 type PutResult struct {
@@ -252,39 +307,72 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	}
 
 	if task.Record {
-		vol, err := m.selectUploadVolume(task.ServerId)
-		if err != nil {
-			return err
+		// TODO: rename to RecordLimit
+		result.LimitRecordDuration = task.RecordDuration
+
+		record := new(Record)
+		if req.RecordId == 0 || req.Duration >= result.LimitRecordDuration {
+			vol, err := m.selectUploadVolume(task.ServerId)
+			if err != nil {
+				return err
+			}
+
+			var e error
+			record, e = m.newRecord(task, vol)
+			if e != nil {
+				return err
+			}
+		} else {
+			change := mgo.Change{
+				Update:    bson.M{"$set": bson.M{"size": req.DumpSize}},
+				ReturnNew: true,
+			}
+
+			_, err := m.records.Find(bson.M{"_id": req.RecordId}).Apply(change, &record)
+			if err == mgo.ErrNotFound {
+				result.Success = false
+				return nil
+			} else if err != nil {
+				return err
+			}
 		}
 
-		record, err := m.newRecord(trackId, task, vol)
-		if err != nil {
-			return err
-		}
+		glog.Infof("record: %+v", record)
 
 		result.RecordId = record.Id
 		result.RecordPath = record.Path
-		result.LimitRecordDuration = task.RecordDuration
-		result.VolumeId = vol.Id
+		result.VolumeId = record.VolumeId
 	}
 
 	result.TrackId = trackId
 
 	// save air record
 	track := &Track{
-		Id:       trackId,
-		Title:    title,
-		Time:     ts,
-		EndTime:  0,
-		PubTime:  0,
-		RecordId: result.RecordId,
-		PrevId:   req.TrackId,
-		StreamId: task.StreamId,
-		TaskId:   task.Id,
+		Id:        trackId,
+		Title:     title,
+		Time:      ts,
+		EndTime:   0,
+		PubTime:   0,
+		ChannelId: task.ChannelId,
+		RecordId:  result.RecordId,
+		PrevId:    req.TrackId,
+		Offset:    req.DumpSize,
+		StreamId:  task.StreamId,
+		TaskId:    task.Id,
 	}
+
 	if err := m.air.Insert(track); err != nil {
 		return err
 	}
+
+	glog.Infof("track: %+v", track)
+
+	// обновляем статистику по текущему треку
+	m.q.Update(bson.M{"task_id": req.TaskId}, bson.M{"$set": bson.M{
+		"runtime.track_id": trackId,
+		"runtime.title":    title,
+		"runtime.ts":       getTs(),
+	}})
 
 	// завершаем трек
 	if req.TrackId != 0 {
@@ -306,8 +394,6 @@ func (m *Manager) endTrack(req TrackRequest) error {
 	var err error
 	ts := getTs()
 
-	m.ch.Update(bson.M{"task_id": req.TaskId}, bson.M{"$set": bson.M{"ts": 0}})
-
 	// завершаем трек
 	err = m.air.UpdateId(req.TrackId, bson.M{"$set": bson.M{"end_ts": ts, "duration": req.Duration}})
 	if err != nil {
@@ -319,8 +405,7 @@ func (m *Manager) endTrack(req TrackRequest) error {
 	}
 
 	// завершаем запись
-	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{
-		"size": req.DumpSize, "hash": req.DumpHash, "end_ts": ts}})
+	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{"size": req.DumpSize, "end_ts": getTs()}})
 	if err != nil {
 		return err
 	}
@@ -466,7 +551,7 @@ func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
 
 	// увеличиваем интервал попыток
 	ivl := task.NextRetryInterval()
-	glog.Infof("retry task after %d", ivl)
+	glog.Warningf("retry task %d after %d", req.TaskId, ivl)
 	update := bson.M{"$set": bson.M{"ts": getTs() + ivl, "retry_ivl": ivl}}
 	if err := m.q.Update(bson.M{"task_id": req.TaskId}, update); err != nil {
 		return err
@@ -476,64 +561,107 @@ func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
 	return nil
 }
 
-type HttpResponseLog struct {
+type ResponseInfo struct {
 	StreamId uint32
 	TaskId   uint32
 	Header   http2.Header
+}
+
+type Channel struct {
+	Id       uint32 `bson:"_id"`
+	Name     string `bson:"name"`
+	TaskId   uint32 `bson:"task_id"`
+	StreamId uint32 `bson:"stream_id"`
+	Time     uint32 `bson:"ts"`
 }
 
 // у потока может быть куча зеркал,
 // после соединения, воркер присылает заголовки
 // извлекаем оттуда название потока (icy-name)
 // и записываем лок в базу по идентификатору задачи
-// TODO: по хорошему, раз в N минут надо проходиться по локам и обнулять неактивные
-func (m *Manager) acquireStreamChannel(log HttpResponseLog) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+func (m *Manager) HoldChannel(info ResponseInfo, result *OpResult) error {
+	m.holder.Lock()
+	defer m.holder.Unlock()
 
-	sinfo := ExtractStreamInfo(&log.Header)
-
-	var name string
-	if sinfo.Name == "" {
-		name = fmt.Sprintf("stream:%s", log.StreamId)
-	} else {
-		name = sinfo.Name
+	streamInfo := ExtractStreamInfo(&info.Header)
+	if streamInfo.Name == "" {
+		streamInfo.Name = fmt.Sprintf("stream:%s", info.StreamId)
 	}
 
-	// добавляем канал
-	m.ch.Upsert(bson.M{"name": name}, bson.M{"$setOnInsert": bson.M{"ts": 0}})
+	m.q.Update(bson.M{"task_id": info.TaskId}, bson.M{"$set": bson.M{
+		"runtime.info":    streamInfo,
+		"runtime.headers": info.Header,
+		"runtime.ts":      getTs(),
+	}})
 
-	// берем лок на канал
-	cinfo, err := m.ch.UpdateAll(bson.M{"name": name, "ts": bson.M{"$lt": getTs()}}, bson.M{
-		"$set": bson.M{
-			"stream_id": log.StreamId,
-			"task_id":   log.TaskId,
-			"ts":        getTs() + TOUCH_TIMEOUT,
-		},
-	})
-	if err != nil {
+	if err := m.respawnDeadChannels(); err != nil {
 		return err
 	}
 
-	if cinfo.Updated == 0 {
-		// пробуем еще раз через 10 минут
-		m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{
-			"ts": getTs() + 600,
-		}})
-		return errors.New("skip stream mirror")
+	channelId := crc32.ChecksumIEEE([]byte(streamInfo.Name))
+	err := m.ch.Insert(bson.M{
+		"_id":       channelId,
+		"name":      streamInfo.Name,
+		"task_id":   info.TaskId,
+		"stream_id": info.StreamId,
+		"ts":        getTs() + TOUCH_TIMEOUT,
+	})
+
+	if err != nil {
+		if mgo.IsDup(err) {
+			// зеркальный поток планируем на час позже (для мониторинга доступности)
+			m.q.Update(bson.M{"task_id": info.TaskId}, bson.M{"$set": bson.M{
+				"ts":         getTs() + 3600,
+				"channel_id": channelId,
+			}})
+			glog.Infof("duplicate hold %d - stream %d, task %d", channelId, info.StreamId, info.TaskId)
+			return nil
+		} else {
+			return err
+		}
 	}
 
+	m.q.Update(bson.M{"task_id": info.TaskId}, bson.M{"$set": bson.M{"channel_id": channelId}})
+	glog.Infof("hold %d - stream %d, task %d", channelId, info.StreamId, info.TaskId)
+
+	result.Success = true
 	return nil
 }
 
-func (m *Manager) LogHttpResponse(log HttpResponseLog, reply *OpResult) error {
-	// сбрасываем интервал попыток
-	m.q.Update(bson.M{"task_id": log.TaskId}, bson.M{"$set": bson.M{"retry_ivl": 0}})
+func (m *Manager) LoopRespawnDeadChannels() {
+	for _ = range time.Tick(TOUCH_TIMEOUT * time.Second) {
+		m.respawnDeadChannels()
+	}
+}
 
-	// логируем заголовки
-	m.logTaskResult(log.TaskId, bson.M{"type": "http", "headers": log.Header})
+func (m *Manager) respawnDeadChannels() error {
+	m.respawner.Lock()
+	defer m.respawner.Unlock()
 
-	// m.acquireStreamChannel(log)
+	where := bson.M{"ts": bson.M{"$lte": getTs()}}
+
+	// 	// делаем из taskId хеш
+	ids := []uint32{}
+	iter := m.ch.Find(where).Select(bson.M{"_id": 1}).Iter()
+	var c Channel
+
+	for iter.Next(&c) {
+		ids = append(ids, c.Id)
+	}
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	if len(ids) > 0 {
+		glog.Infof("respawn dead channels: %v", ids)
+
+		// поднимаем в очередь зеркальные потоки
+		// нерабочии потоки (retry state) пропускаем
+		m.q.UpdateAll(bson.M{"channel_id": bson.M{"$in": ids}, "retry_ivl": 0}, bson.M{"$set": bson.M{"ts": getTs()}})
+
+		// удаляем протухшие блокировки
+		m.ch.RemoveAll(where)
+	}
 
 	return nil
 }

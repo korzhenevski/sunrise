@@ -77,7 +77,7 @@ func (w *Ripper) Run() {
 
 	// glog.Infof("Process '%s' metaint %d, server '%s'", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
 	// log.Println(Log{"ev": "http_response", "tid": w.task.Id, "headers": *w.stream.Header()})
-	if !w.logHttpResponse() {
+	if !w.holdChannel() {
 		return
 	}
 
@@ -234,17 +234,18 @@ func (r *Ripper) exitHandler() {
 	glog.Infof("task %d quitted", r.task.Id)
 }
 
-func (r *Ripper) logHttpResponse() bool {
-	l := manager.HttpResponseLog{
+func (r *Ripper) holdChannel() bool {
+	req := manager.ResponseInfo{
 		StreamId: r.task.StreamId,
 		TaskId:   r.task.Id,
 		Header:   *r.stream.Header(),
 	}
-	var reply manager.OpResult
-	err := r.worker.Client.Call("Tracker.LogHttpResponse", l, &reply)
-	if err != nil {
+
+	reply := new(manager.OpResult)
+	if err := r.worker.Client.Call("Tracker.HoldChannel", req, &reply); err != nil {
 		glog.Warning(err)
 		return false
 	}
-	return true
+
+	return reply.Success
 }
