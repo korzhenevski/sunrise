@@ -17,10 +17,6 @@ import (
 	"time"
 )
 
-// TODO
-// add interface for add/remove Server, Volume
-// http://zookeeper.apache.org/doc/trunk/zookeeperTutorial.html#sc_producerConsumerQueues
-
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
@@ -308,6 +304,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 
 	if task.Record {
 		// TODO: rename to RecordLimit
+		// TODO: что нибудь сделать с повторными треками
 		result.LimitRecordDuration = task.RecordDuration
 
 		record := new(Record)
@@ -518,6 +515,7 @@ func (m *Manager) TouchTask(req TouchRequest, res *TouchResult) error {
 		return err
 	}
 
+	// update channel ts
 	_, err := m.ch.UpdateAll(bson.M{"task_id": bson.M{"$in": req.TaskId}}, bson.M{"$set": bson.M{"ts": getTs() + TOUCH_TIMEOUT}})
 	if err != nil {
 		return err

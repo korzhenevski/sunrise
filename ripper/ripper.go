@@ -1,16 +1,28 @@
 package ripper
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
+	"github.com/outself/sunrise/mp3"
 	"github.com/outself/sunrise/radio"
 	"github.com/vova616/xxhash"
 	"hash"
-	// "log"
 	"time"
 )
+
+// TODO
+// интегрировать mediaInfo в holdStream
+// ~ chunk.Data - меньше копий в памяти
+//
+// Зависающие потоки: после нескольких дней работы, есть потоки которые висят,
+// важно прибивать их в task_wrapper
+//
+// Сконвертировать файлы записей в блобы по 6 часов
+//
+// Выдавать в API каналы и записи к ним
 
 type Ripper struct {
 	task   *manager.Task
@@ -83,7 +95,9 @@ func (w *Ripper) Run() {
 
 	defer w.endTrack()
 
+	var mediaInfo *mp3.FrameHeader
 	metaChanged := true
+
 	// firstMeta := true
 	for {
 		select {
@@ -98,6 +112,14 @@ func (w *Ripper) Run() {
 		if err != nil {
 			// TODO: really panic??
 			panic(err)
+		}
+
+		if mediaInfo == nil {
+			mediaInfo, err = mp3.GetFirstFrame(bytes.NewReader(chunk.Data))
+			if err != nil {
+				panic(err)
+			}
+			glog.Infof("mediainfo: %+v", mediaInfo)
 		}
 
 		w.hasher.Write(chunk.Data)
