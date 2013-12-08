@@ -2,7 +2,6 @@ package ripper
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
@@ -37,18 +36,6 @@ type Ripper struct {
 	hasher hash.Hash32
 }
 
-type Log map[string]interface{}
-
-func (r Log) String() (s string) {
-	b, err := json.Marshal(r)
-	if err != nil {
-		s = ""
-		return
-	}
-	s = string(b)
-	return
-}
-
 func NewRipper(task *manager.Task, worker *Worker) *Ripper {
 	return &Ripper{
 		task:   task,
@@ -72,8 +59,6 @@ func (r *Ripper) Stop() {
 }
 
 func (w *Ripper) Run() {
-	// log.Println(Log{"ev": "connect", "tid": w.task.Id, "url": w.task.StreamUrl})
-
 	glog.V(2).Info("connect %s", w.task.StreamUrl)
 	// закрытие дампера должно быть после exitHandler (defer is stack)
 	// в exitHandler завершается трек и должен быть
@@ -86,23 +71,20 @@ func (w *Ripper) Run() {
 		panic(err)
 	}
 	defer w.stream.Close()
+	defer w.endTrack()
 
 	// glog.Infof("Process '%s' metaint %d, server '%s'", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
-	// log.Println(Log{"ev": "http_response", "tid": w.task.Id, "headers": *w.stream.Header()})
 	if !w.holdChannel() {
 		return
 	}
 
-	defer w.endTrack()
-
 	var mediaInfo *mp3.FrameHeader
 	metaChanged := true
 
-	// firstMeta := true
 	for {
 		select {
 		case <-w.stop:
-			// glog.V(2).Infof("task %d quit", w.task.Id)
+			glog.V(2).Infof("task %d quit", w.task.Id)
 			return
 		default:
 			// nothing
@@ -121,6 +103,7 @@ func (w *Ripper) Run() {
 			}
 			glog.Infof("mediainfo: %+v", mediaInfo)
 		}
+		return
 
 		w.hasher.Write(chunk.Data)
 
@@ -131,28 +114,12 @@ func (w *Ripper) Run() {
 
 		// change meta, if present
 		if len(chunk.Meta) > 0 && w.meta != chunk.Meta {
-			// fucking teasers
-			// if w.getDuration() >= 60 || firstMeta {
-			// glog.V(2).Infof("task %d stream meta changed", w.task.Id)
 			w.meta = chunk.Meta
 			metaChanged = true
-			// 	firstMeta = false
-			// } else {
-			// 	glog.Infof("skip teaser update", w.task.Id)
-			// }
-			// log.Println(Log{"ev": "stream_meta", "tid": w.task.Id, "prev_meta": w.meta, "meta": chunk.Meta})
 		}
 
 		// force rotate
 		if w.track.LimitRecordDuration > 0 && w.getDuration() >= w.track.LimitRecordDuration {
-			// log.Println(Log{
-			// 	"ev":          "record_rotate",
-			// 	"tid":         w.task.Id,
-			// 	"record_path": w.track.RecordPath,
-			// 	"record_id":   w.track.RecordId,
-			// 	"limit":       w.track.LimitRecordDuration,
-			// 	"duration":    w.getDuration(),
-			// })
 			glog.V(2).Infof("task %d record duration (%d) limit exceed", w.task.Id, w.track.LimitRecordDuration)
 			metaChanged = true
 		}
@@ -200,19 +167,6 @@ func (r *Ripper) newTrack() error {
 	r.hasher.Reset()
 	r.metaTs = time.Now().Unix()
 
-	// log.Println(Log{
-	// 	"ev":           "new_track",
-	// 	"tid":          r.task.Id,
-	// 	"record_path":  r.track.RecordPath,
-	// 	"record_limit": r.track.LimitRecordDuration,
-	// 	"record_id":    req.RecordId,
-	// 	"meta":         req.StreamMeta,
-	// 	"dump_hash":    req.DumpHash,
-	// 	"dump_size":    req.DumpSize,
-	// 	"prev_id":      req.TrackId,
-	// 	"duration":     req.Duration,
-	// })
-
 	r.track = new(manager.TrackResult)
 	err := r.worker.Client.Call("Tracker.NewTrack", req, r.track)
 	if err != nil {
@@ -229,10 +183,11 @@ func (r *Ripper) newTrack() error {
 
 func (r *Ripper) endTrack() {
 	if r.track.TrackId == 0 {
-		// glog.V(2).Infof("task %d end track", r.task.Id)
+		glog.V(2).Infof("task %d end track", r.task.Id)
 		return
 	}
-	// glog.V(2).Infof("task %d end track %d", r.task.Id, r.track.TrackId)
+
+	glog.V(2).Infof("task %d end track %d", r.task.Id, r.track.TrackId)
 	var reply bool
 	req := r.buildTrackRequest()
 	err := r.worker.Client.Call("Tracker.EndTrack", req, &reply)
