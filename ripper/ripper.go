@@ -1,7 +1,7 @@
 package ripper
 
 import (
-	"bytes"
+	// "bytes"
 	"errors"
 	"github.com/golang/glog"
 	"github.com/outself/sunrise/manager"
@@ -24,16 +24,18 @@ import (
 // Выдавать в API каналы и записи к ним
 
 type Ripper struct {
-	task   *manager.Task
-	dumper *radio.Dumper
-	stream *radio.Stream
-	worker *Worker
-	meta   string
-	metaTs int64
-	track  *manager.TrackResult
-	stop   chan bool
-	quit   chan bool
-	hasher hash.Hash32
+	task        *manager.Task
+	dumper      *radio.Dumper
+	stream      *radio.Stream
+	worker      *Worker
+	meta        string
+	metaTs      int64
+	trackOffset int64
+	track       *manager.TrackResult
+	stop        chan bool
+	quit        chan bool
+	hasher      hash.Hash32
+	mediainfo   *mp3.FrameHeader
 }
 
 func NewRipper(task *manager.Task, worker *Worker) *Ripper {
@@ -74,13 +76,12 @@ func (w *Ripper) Run() {
 	defer w.endTrack()
 
 	// glog.Infof("Process '%s' metaint %d, server '%s'", w.task.StreamUrl, w.stream.Metaint, w.stream.Header().Get("server"))
+
 	if !w.holdChannel() {
 		return
 	}
 
-	var mediaInfo *mp3.FrameHeader
 	metaChanged := true
-
 	for {
 		select {
 		case <-w.stop:
@@ -95,17 +96,6 @@ func (w *Ripper) Run() {
 			// TODO: really panic??
 			panic(err)
 		}
-
-		if mediaInfo == nil {
-			mediaInfo, err = mp3.GetFirstFrame(bytes.NewReader(chunk.Data))
-			if err != nil {
-				panic(err)
-			}
-			glog.Infof("mediainfo: %+v", mediaInfo)
-		}
-		return
-
-		w.hasher.Write(chunk.Data)
 
 		// dumping data
 		if len(w.track.RecordPath) > 0 {
@@ -126,6 +116,8 @@ func (w *Ripper) Run() {
 
 		// track meta
 		if metaChanged {
+			recPath := w.track.RecordPath
+
 			err := w.newTrack()
 			if err == ErrNoTask {
 				glog.Warningf("task %d new track return no task", w.task.Id)
@@ -135,12 +127,16 @@ func (w *Ripper) Run() {
 			}
 
 			// change dump path
-			if len(w.track.RecordPath) > 0 {
-				glog.Infof("task %d ripping to %s", w.task.Id, w.track.RecordPath)
-				w.dumper.Open(w.track.RecordPath)
+			if recPath != w.track.RecordPath {
+				if len(w.track.RecordPath) > 0 {
+					glog.Infof("task %d ripping to %s, offset %d", w.task.Id, w.track.RecordPath, w.trackOffset)
+					w.dumper.Open(w.track.RecordPath)
+				} else {
+					glog.Infof("task %d record closed", w.task.Id)
+					w.dumper.Close()
+				}
 			} else {
-				glog.V(2).Infof("task %d record closed", w.task.Id)
-				w.dumper.Close()
+				glog.Infof("task %d continue record to %s, offset %d", w.task.Id, recPath, w.trackOffset)
 			}
 
 			metaChanged = false
@@ -148,13 +144,42 @@ func (w *Ripper) Run() {
 	}
 }
 
+func (r *Ripper) holdChannel() bool {
+	// chunk, err := r.stream.ReadChunk()
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// r.mediainfo, err = mp3.GetFirstFrame(bytes.NewReader(chunk.Data))
+	// if err != nil {
+	// 	glog.Warningf("mediainfo error: %s", err)
+	// }
+	// glog.Infof("mediainfo: %+v", r.mediainfo)
+
+	req := manager.ResponseInfo{
+		StreamId: r.task.StreamId,
+		TaskId:   r.task.Id,
+		Header:   *r.stream.Header(),
+		// MediaInfo: *r.mediainfo,
+	}
+
+	reply := new(manager.OpResult)
+	if err := r.worker.Client.Call("Tracker.HoldChannel", req, &reply); err != nil {
+		glog.Warning(err)
+		return false
+	}
+
+	return reply.Success
+}
+
 func (r *Ripper) buildTrackRequest() *manager.TrackRequest {
 	return &manager.TrackRequest{
 		TaskId:     r.task.Id,
-		RecordId:   r.track.RecordId,
-		DumpHash:   r.hasher.Sum32(),
-		DumpSize:   r.dumper.Written,
 		StreamMeta: r.meta,
+		RecordId:   r.track.RecordId,
+		RecordSize: r.dumper.Written,
+		Hash:       r.hasher.Sum32(),
+		Size:       r.dumper.Written - r.trackOffset,
 		Duration:   r.getDuration(),
 		VolumeId:   r.track.VolumeId,
 		TrackId:    r.track.TrackId,
@@ -166,6 +191,7 @@ func (r *Ripper) newTrack() error {
 
 	r.hasher.Reset()
 	r.metaTs = time.Now().Unix()
+	r.trackOffset = r.dumper.Written
 
 	r.track = new(manager.TrackResult)
 	err := r.worker.Client.Call("Tracker.NewTrack", req, r.track)
@@ -209,20 +235,4 @@ func (r *Ripper) exitHandler() {
 	r.worker.OnTaskExit(r.task.Id, err)
 	r.quit <- true
 	glog.Infof("task %d quitted", r.task.Id)
-}
-
-func (r *Ripper) holdChannel() bool {
-	req := manager.ResponseInfo{
-		StreamId: r.task.StreamId,
-		TaskId:   r.task.Id,
-		Header:   *r.stream.Header(),
-	}
-
-	reply := new(manager.OpResult)
-	if err := r.worker.Client.Call("Tracker.HoldChannel", req, &reply); err != nil {
-		glog.Warning(err)
-		return false
-	}
-
-	return reply.Success
 }
