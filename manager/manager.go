@@ -6,7 +6,9 @@ import (
 	// "github.com/cybersiddhu/golang-set"
 	"fmt"
 	"github.com/golang/glog"
+	"github.com/kr/pretty"
 	"github.com/outself/sunrise/http2"
+	// "github.com/outself/sunrise/mp3"
 	"hash/crc32"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
@@ -114,8 +116,11 @@ type TrackRequest struct {
 	TaskId   uint32
 	RecordId uint32
 	// Хеш записанных данных
-	DumpHash   uint32
-	DumpSize   uint32
+	Hash uint32
+	// размер текущего трека
+	Size int64
+	// размер всей записи
+	RecordSize int64
 	VolumeId   uint32
 	StreamMeta string
 	// Продолжительность записи
@@ -149,7 +154,8 @@ type Track struct {
 	PrevId uint32 `bson:"pid"`
 	// Трек успешно завершился
 	EndTime uint32 `bson:"end_ts"`
-	Offset  uint32 `bson:"offset"`
+	Offset  int64  `bson:"offset"`
+	Size    int64  `bson:"size"`
 	// следущий трек = db.air.findId({PrevId: current.Id})
 }
 
@@ -321,7 +327,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 			}
 		} else {
 			change := mgo.Change{
-				Update:    bson.M{"$set": bson.M{"size": req.DumpSize}},
+				Update:    bson.M{"$set": bson.M{"size": req.RecordSize}},
 				ReturnNew: true,
 			}
 
@@ -334,7 +340,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 			}
 		}
 
-		glog.Infof("record: %+v", record)
+		pretty.Println("Record:", record)
 
 		result.RecordId = record.Id
 		result.RecordPath = record.Path
@@ -353,7 +359,8 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		ChannelId: task.ChannelId,
 		RecordId:  result.RecordId,
 		PrevId:    req.TrackId,
-		Offset:    req.DumpSize,
+		Size:      req.Size,
+		Offset:    req.RecordSize,
 		StreamId:  task.StreamId,
 		TaskId:    task.Id,
 	}
@@ -362,7 +369,8 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		return err
 	}
 
-	glog.Infof("track: %+v", track)
+	pretty.Println("track:", track)
+	// glog.Infof("track: %+v", track)
 
 	// обновляем статистику по текущему треку
 	m.q.Update(bson.M{"task_id": req.TaskId}, bson.M{"$set": bson.M{
@@ -373,7 +381,7 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 
 	// завершаем трек
 	if req.TrackId != 0 {
-		glog.Info("end track")
+		// glog.Info("end track")
 		if err := m.endTrack(req); err != nil {
 			return err
 		}
@@ -402,12 +410,12 @@ func (m *Manager) endTrack(req TrackRequest) error {
 	}
 
 	// завершаем запись
-	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{"size": req.DumpSize, "end_ts": getTs()}})
+	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{"size": req.RecordSize, "end_ts": getTs()}})
 	if err != nil {
 		return err
 	}
 
-	err = m.volumes.UpdateId(req.VolumeId, bson.M{"$inc": bson.M{"used": req.DumpSize}})
+	err = m.volumes.UpdateId(req.VolumeId, bson.M{"$inc": bson.M{"used": req.RecordSize}})
 	if err != nil {
 		return err
 	}
@@ -450,7 +458,10 @@ func (m *Manager) ReserveTask(req ReserveRequest, task *Task) error {
 	ts := getTs()
 	where := bson.M{"ts": bson.M{"$lt": ts}, "server_id": req.ServerId}
 	change := mgo.Change{
-		Update:    bson.M{"$set": bson.M{"ts": ts + TOUCH_TIMEOUT, "task_id": genTaskId(req.WorkerId)}},
+		Update: bson.M{
+			"$unset": bson.M{"runtime": 1, "error": 1},
+			"$set":   bson.M{"ts": ts + TOUCH_TIMEOUT, "task_id": genTaskId(req.WorkerId)},
+		},
 		ReturnNew: true,
 	}
 
@@ -550,7 +561,10 @@ func (m *Manager) RetryTask(req RetryRequest, res *OpResult) error {
 	// увеличиваем интервал попыток
 	ivl := task.NextRetryInterval()
 	glog.Warningf("retry task %d after %d", req.TaskId, ivl)
-	update := bson.M{"$set": bson.M{"ts": getTs() + ivl, "retry_ivl": ivl}}
+	update := bson.M{
+		"$unset": bson.M{"task_id": 1, "runtime": 1},
+		"$set":   bson.M{"ts": getTs() + ivl, "error": req.Error, "retry_ivl": ivl},
+	}
 	if err := m.q.Update(bson.M{"task_id": req.TaskId}, update); err != nil {
 		return err
 	}
@@ -563,6 +577,7 @@ type ResponseInfo struct {
 	StreamId uint32
 	TaskId   uint32
 	Header   http2.Header
+	// MediaInfo mp3.FrameHeader
 }
 
 type Channel struct {
@@ -602,6 +617,7 @@ func (m *Manager) HoldChannel(info ResponseInfo, result *OpResult) error {
 		"name":      streamInfo.Name,
 		"task_id":   info.TaskId,
 		"stream_id": info.StreamId,
+		"info":      streamInfo,
 		"ts":        getTs() + TOUCH_TIMEOUT,
 	})
 
