@@ -1,0 +1,14 @@
+{% if layout %}{% extends "layout.html" %}{% endif -%}
+{% block container %}
+	<div class="row">
+		<div class="span12">
+            <h1>Streams</h1>
+            {% for letter, substreams in streams|groupby('letter') %}
+                <h3 id="{{ letter }}">{{ letter }}</h3>
+                {% for stream in substreams %}
+                <p><a href="{{ url_for('stream', stream_id=stream._id) }}">{{ stream.name }}</a></p>
+                {% endfor %}
+            {% endfor %}
+		</div>
+	</div>
+{% endblock %}

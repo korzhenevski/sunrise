@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+	<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.3.2/css/bootstrap.css">
+	<link rel="stylesheet" type="text/css" href="/static/minimal.css">
+
+	<script src="/static/jquery.min.js"></script>
+	<script src="/static/jouele/jquery.jplayer.min.js"></script>
+	<script src="/static/jouele/jouele.js"></script>
+	<link rel="stylesheet" type="text/css" href="/static/jouele/jouele.css" />
+	
+</head>
+<body>
+	<div class="container" id="pjax-container">
+		<div class="navbar">
+
+		  <div class="navbar-inner">
+		    <a class="brand" href="/">PiratePlay</a>
+
+			<form class="navbar-form pull-left" action="{{ url_for('search') }}">
+				<input type="search" name="q" class="span2" id="short-search" placeholder="search">
+			</form>
+
+		    <ul class="nav pull-right">
+		      <li class="divider-vertical"></li>		    
+		      <li{% if request.endpoint == 'stream_list' %} class="active"{% endif %}>
+		      	<a href="{{ url_for('stream_list') }}">Streams</a>
+		      </li>
+		      <li class="divider-vertical"></li>
+		    </ul>
+
+
+		  </div>
+		</div>
+	
+
+		<div class="content">
+		{% block container %}{% endblock %}
+		</div>
+	</div>
+</body>
+</html>

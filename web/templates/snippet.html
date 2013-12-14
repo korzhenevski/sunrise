@@ -1,0 +1,10 @@
+<li class="jouele-option-progress-when-playing">
+	<a href="{{ audio.play_url }}" class="jouele">{{ audio.title }}</a>
+	<span class="meta">
+	{% if request.endpoint != 'stream' %}
+		<a href="{{ url_for('stream', stream_id=audio.stream_id) }}">{{ audio.stream_name|truncate(60, True) }}</a>
+		&middot;
+	{% endif %}
+	{{ audio.ts|humantime }}
+	</span>
+</li>

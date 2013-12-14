@@ -1,0 +1,141 @@
+.playlist {
+	padding: 0;
+}
+
+.track {
+	position: relative;
+	overflow: hidden;
+	height: 55px;
+	margin: 0 -10px;
+	margin-bottom: 5px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.track .btn {
+	padding: 1px 5px;
+	border: 0;
+}
+
+.track:hover {
+	background-color: #eee;
+}
+
+.track.playing {
+	background-color: #eee;	
+}
+
+.track .control {
+	position: absolute;
+	top: 7px;
+	left: 10px;
+	height: 50px;
+}
+
+.track .text {
+	position: absolute;
+	left: 43px;
+	right: 20px;
+	top: 8px;
+	width: 75%;	
+}
+
+.track .duration {
+	position: absolute;
+	top: 11px;
+	right: 10px;
+	color: #aaa;
+	font-size: 80%;
+}
+
+.track .track-title {
+	color: #000;
+	font-size: 120%;
+	display: block;
+}
+
+.track .track-meta {
+	color: #999;
+	font-size: 11px;
+	display: inline-block;
+}
+
+.text-overflow {
+	overflow: hidden;
+	text-overflow:ellipsis;
+	white-space: nowrap;	
+}
+
+.track .track-meta a {
+	color: #999;
+}
+
+.sidebar {
+    padding-top: 6px;
+    margin-left: 2.333%;
+}
+
+.sidebar h5 {
+	margin-top: 5px;
+	font-weight: bold;
+	margin-bottom: 5px;	
+}
+
+.sidebar .list-unstyled li {
+	padding: 3px 0;
+}
+
+.container {
+	max-width: 74%;
+}
+
+body{
+	padding-top: 70px;
+	font: 13px/1.4 "Helvetica", "Arial", sans-serif;
+	/*font: 15px/1.4 "Lucida Grande","Lucida Sans Unicode","Lucida Sans",Garuda,Verdana,Tahoma,sans-serif !important;*/
+	/*font-family:Arial, sans-serif!important;*/
+}
+
+p {
+	margin: 0 0 5px;
+}
+
+.navbar {
+	min-height: 40px;
+}
+
+.navbar a,
+.navbar-nav > li > a {
+	line-height: 25px;
+	font-size: 15px;
+	padding: 9px 15px;
+}
+
+.brand{font-weight:700;font-family: "Open Sans", sans-serif;text-decoration:none;font-weight: 500;}
+.logo {background:url(/static/pirate.svg);width:38px;height:25px;float: left;top:0px;left:-9px;position: relative;}
+
+.tags-filter li {margin-bottom: 6px; padding-left: 0;}
+.tags-filter a {padding:2px 6px; font-size: 12px;font-weight: normal; text-shadow}
+
+.link{text-decoration:underline}
+.link > .glyphicon { padding-right: 0.3em; }
+.new-tracks { margin-bottom: 5px; }
+.search-meta{font-size:90%;margin-top:2em}
+
+.navbar-inverse {
+	background-color: #1E252F !important;
+}
+
+.top-player {
+	padding: 10px 15px;	
+	color: #bbb;
+}
+
+.top-player .btn {
+	float: left;
+}
+
+.top-player .title {
+	font-size: 10px;
+	margin-left: 30px;
+}

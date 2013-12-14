@@ -1,0 +1,36 @@
+<rss xmlns:itunes="http://www.itunes.com/DTDs/Podcast-1.0.dtd" version="2.0">
+<channel>
+	<title>{{ config.SITENAME }}</title>
+	<link>{{ config.BASEURL }}</link>
+	<language>en-us</language>
+	<pubDate>Mon, 14 Oct 2013 05:00:00 GMT</pubDate>
+	<lastBuildDate>Mon, 14 Oct 2013 05:00:00 GMT</lastBuildDate>
+	<itunes:author>{{ config.SITENAME }}</itunes:author>
+	<itunes:summary>
+		bigger summary about all
+	</itunes:summary>
+	<itunes:owner>
+		<itunes:name>{{ config.SITENAME }}</itunes:name>
+	</itunes:owner>
+	{#<itunes:image href="{{ config.BASEURL }}/static/favicon.ico"></itunes:image>#}
+	<itunes:category text="Music"/>
+
+	{% for audio in search_result.results %}
+		{% set full_url = config.BASEURL + audio.play_url %}
+		{#
+		TODO: full_url audio property not working :(
+		#}
+		<item>
+			<title>{{ audio.title }}</title>
+			<description>{{ audio.tags|join(', ') }}</description>
+			<itunes:summary>{{ audio.tags|join(', ') }}</itunes:summary>
+			<author>{{ audio.stream_name }}</author>
+			<itunes:author>{{ audio.stream_name }}</itunes:author>
+			<pubDate>{{ audio.dt_ts|format_gmt }}</pubDate>
+			<guid>{{ full_url }}</guid>
+			<link>{{ full_url }}</link>
+			<enclosure url="{{ full_url }}" length="{{ audio.record_size }}" type="audio/mpeg"/>
+		</item>
+	{% endfor %}
+</channel>
+</rss>

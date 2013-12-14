@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+	<meta charset="UTF-8">
+	<title>{{ config.SITENAME }}</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css"/>
+	<link rel="stylesheet" type="text/css" href="/static/player.css">
+	<link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon">
+	<link title="{{ config.SITENAME }}" type="application/opensearchdescription+xml" rel="search" href="/opensearch.xml">
+
+	<link rel="stylesheet" type="text/css" href="/static/jouele/jouele.css" />
+</head>
+
+<body>
+	<nav class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+		<div class="container">
+			<div class="col-md-8">
+				<a class="navbar-brand brand" href="/">
+					<div class="logo"></div>
+			  	</a>
+	            <ul class="nav navbar-nav">
+	                <li><a href="{{ url_for('stream_list') }}">Streams</a></li>
+	            </ul>					
+			</div>
+        </div>
+	</nav>
+
+	<div class="container" id="pjax-container">
+	{% block container %}{% endblock %}
+	</div>
+
+	<script src="/static/jquery.min.js"></script>
+
+	<script src="/static/jouele/jquery.jplayer.min.js"></script>
+	<script src="/static/jouele/jouele.js"></script>
+
+	<!--script src="/static/jquery.pjax.js"></script-->
+	<script src="/static/bootstrap-infiniteScroll.js"></script>
+	<script src="/static/soundmanager2.js"></script>
+	<script>
+		soundManager.setup({
+			url: '/static/',
+			debugMode: true,
+			//flashVersion: 9,
+			useHighPerformance: true,
+			preferFlash: true,
+			wmode: 'transparent'
+		});
+
+	    $(function () {
+	        $('#searchListing').infiniteScroll({
+	            calculateBottom: function () {
+	                return ($('#searchListing').position().top +
+	                	$('#searchListing').height()) - $(window).height() - 200;
+	            },
+
+	            processResults: function(results) {
+                    $('#searchResults').append(results);
+	            },
+
+	            url: window.location.href,
+	            getData: function() {
+	            	return {preload: 1};
+	            }
+	        });
+	    });
+	</script>	
+
+	<script src="/static/player.js"></script>
+</body>
+</html>

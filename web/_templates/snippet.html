@@ -1,0 +1,38 @@
+<li>
+  <a href="{{ audio.play_url }}" class="jouele">
+    {{ audio.title }}
+  </a>	
+</li>
+
+<!-- <li class="track" data-url="{{ audio.play_url }}" id="track{{ audio.id }}">
+
+	<div class="control">
+		<button type="button" class="btn btn-primary">
+			<span class="glyphicon glyphicon-play"></span>
+		</button>
+	</div>
+
+	<div class="text">
+		<div class="text-overflow">
+		{% if audio.artist %}
+			<a href="{{ url_for('search', q=audio.artist) }}">{{ audio.artist }}</a> &ndash; {{ audio.name }}
+		{% else %}
+			{{ audio.title }}
+		{% endif %}
+		</div>
+
+		<span class="track-meta text-overflow">
+			{% if request.endpoint == 'stream' %}
+			    {{ audio.ts|humantime }}
+			{% else %}
+			    <a href="{{ url_for('stream', stream_id=audio.stream_id) }}" class="pjax">{{ audio.stream_name }}</a>
+			{% endif %}
+	    </span>
+	</div>
+
+	<div class="duration">
+		{{ audio.duration|to_duration }}
+	</div>
+
+</li>
+ -->

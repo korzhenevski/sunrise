@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torrent="http://xmlns.ezrss.it/0.1/">
+<channel>
+    <title>music torrents</title>
+    <link>http://de5/</link>
+    <description>de5</description>
+    <item>
+        <title></title>
+        <description><![CDATA[ ]]></description>
+        <category>MP3</category>
+        <author>http://kickass.to/user/zapalka/</author>
+        <link>http://kickass.to/p-collins-discography-1981-2011-mp3-t7984269.html</link>
+        <guid>http://kickass.to/p-collins-discography-1981-2011-mp3-t7984269.html</guid>
+        <pubDate>Mon, 07 Oct 2013 20:49:42 +0000</pubDate>
+        {#<torrent:contentLength>6303218048</torrent:contentLength>
+        <torrent:infoHash>111AD188E7FF2C27F612AA18F2F2CF3F52D5A661</torrent:infoHash>
+        <torrent:magnetURI><![CDATA[magnet:?xt=urn:btih:111AD188E7FF2C27F612AA18F2F2CF3F52D5A661&dn=p+collins+discography+1981+2011+mp3&tr=udp%3A%2F%2Fbt.rutor.org%3A2710&tr=udp%3A%2F%2Fopen.demonii.com%3A1337]]></torrent:magnetURI>
+        <torrent:seeds>0</torrent:seeds>
+        <torrent:peers>0</torrent:peers>
+        <torrent:verified>1</torrent:verified>
+        <torrent:fileName>p.collins.discography.1981.2011.mp3.torrent</torrent:fileName>
+        <enclosure url="http://torcache.net/torrent/111AD188E7FF2C27F612AA18F2F2CF3F52D5A661.torrent?title=[kickass.to]p.collins.discography.1981.2011.mp3" length="6303218048" type="application/x-bittorrent" />#}
+    </item>
+</channel>

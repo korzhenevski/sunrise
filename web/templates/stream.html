@@ -1,0 +1,37 @@
+{% if layout and not request.args.preload %}{% extends "layout.html" %}{% endif -%}
+{% block container %}
+
+<div class="row">
+	<div class="span12">
+		<h3>
+			{% if stream_info.name %}
+				{{ stream_info.name }}
+			{% else %}
+				{{ stream_info.url }}
+			{% endif %}
+		</h3>
+	</div>		
+</div>
+
+<div class="row">
+	<div class="span8">
+		<h4>On Air</h4>
+		<ul class="unstyled playlist">
+			{% for audio in search.results %}
+				{% include "snippet.html" %}
+			{% endfor %}
+		</ul>
+	</div>
+
+	<div class="span4">
+	<!-- 	{% if search.facets.days.terms %}
+		<h4>Archive</h4>
+		<ul class="unstyled">
+			{% for day in search.facets.days.terms|sort(attribute='term', reverse=True) %}
+			<li>{{ day.term }}</li>
+			{% endfor %}			
+		</ul>
+		{% endif %} -->
+	</div>
+</div>
+{% endblock %}

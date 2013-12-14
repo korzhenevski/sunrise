@@ -1,0 +1,60 @@
+{% if layout and not request.args.preload %}{% extends "layout.html" %}{% endif -%}
+{% block container %}
+    {% if not request.args.preload %}
+
+	<div class="row">
+		<div class="col-md-8">
+			<form autocomplete="off" id="search-form" action="{{ url_for('search') }}">
+			    <div class="input-group">
+			      <input type="search" name="q" class="form-control input-sm"
+			      			value="{{ request.args.q }}" placeholder="" />
+			      <span class="input-group-btn">
+					<input class="btn btn-sm btn-primary" type="submit" value="Search" />
+			      </span>
+			    </div>
+			</form>
+		</div>
+	</div>
+
+	<div class="row search-meta">
+		<div class="col-md-8">
+            {% if request.endpoint == 'stream' %}
+            <h4>{{ stream_info.name }}</h4>
+            {% endif %}
+
+            {% if request.endpoint == 'latest' %}
+            <h4>On Air</h4>
+            {% endif %}
+		</div>
+	</div>
+
+	<div class="row">
+		<div class="col-md-8" id="searchListing" data-url="{{ request.url }}">
+			<ul class="playlist" id="searchResults">
+			{% for audio in search_result.results %}
+				{% include "snippet.html" %}
+			{% endfor %}
+            </ul>
+
+            {% if not search_result.results %}
+            <p>Nothing found</p>
+            {% endif %}
+		</div>
+		<div class="col-md-3 sidebar">
+            {% if request.endpoint == 'stream' %}
+                {% if search_result.total %}
+                <h5>Add feed to</h5>
+                <ul class="list-unstyled">
+                    <li><a href="{{ itunes_url }}">iTunes</a></li>
+                    <li><a href="{{ rss_url }}">RSS</a></li>
+                </ul>
+                {% endif %}
+            {% endif %}
+		</div>
+	</div>
+    {% else %}
+        {% for audio in search_result.results %}
+            {% include "snippet.html" %}
+        {% endfor %}
+    {% endif %}
+{% endblock %}
