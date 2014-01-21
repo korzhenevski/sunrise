@@ -488,7 +488,7 @@ func (m *Manager) selectVolume(serverId uint32, upload bool) (*Volume, error) {
 		//where["upload"] = false
 	}
 	err := m.volumes.Find(where).Iter().All(&result)
-	if err == mgo.ErrNotFound {
+	if err == mgo.ErrNotFound || len(result) == 0 {
 		return nil, errors.New("no free volume")
 	} else if err != nil {
 		return nil, err

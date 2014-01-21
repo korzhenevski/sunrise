@@ -10,6 +10,7 @@
 
 tracker/tracker
 worker/worker
+worker/data
 
 # Folders
 _obj

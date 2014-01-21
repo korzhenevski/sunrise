@@ -12,8 +12,8 @@ import (
 
 type Worker struct {
 	Id       uint32
-	Client   *rpc2.Client
 	ServerId uint32
+	Client   *rpc2.Client
 	tasks    map[uint32]*Ripper
 	stop     chan bool
 	stopped  bool
@@ -101,6 +101,10 @@ func (w *Worker) RequestTask() <-chan *manager.Task {
 
 func (w *Worker) SpawnTask(task *manager.Task) {
 	glog.Infof("Spawn new task: %+v", task)
+
+	// prefix := fmt.Sprintf("tid=%d qid=%d sid=%d ", task.Id, task.QueueId, task.StreamId)
+	// logger := log.New(w.ripperLog, prefix, log.LstdFlags)
+
 	t := NewRipper(task, w)
 	w.tasks[task.Id] = t
 	go t.Run()
