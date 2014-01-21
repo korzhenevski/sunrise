@@ -42,15 +42,6 @@ def timeago(dt):
 def intcomma(i):
     return humanize.intcomma(i)
 
-@app.template_filter()
-def to_duration(dur):
-    dur = int(dur)
-    if dur > 0:
-        res = unicode(timedelta(seconds=dur))
-        if dur <= 3600:
-            return res[2:]
-        return res
-    return '00:00'
 
 
 @app.template_filter()
@@ -73,18 +64,3 @@ def format_date(ts):
 @app.template_filter()
 def to_dt(ts):
     return datetime.fromtimestamp(ts)
-
-
-@app.template_filter()
-def queue_html_class(s):
-    c = ''
-    if s.get('task_id'):
-        c = 'active'
-
-    if s.get('record') and c:
-        c = 'warning'
-
-    if s.get('retry_ivl'):
-        c = 'danger'
-
-    return c

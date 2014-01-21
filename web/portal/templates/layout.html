@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>{% block title %}AFM{% endblock %}</title>
+	<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.3.2/css/bootstrap.css">
+	<!--<link rel="stylesheet" type="text/css" href="/static/light.css">-->
+	<link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+	<div class="container" id="pjax-container">
+		<div class="navbar">
+          <ul class="inline">
+              <li class="brand"><a href="/">AFM</a></li>
+              <li><a href="">fadsfda</a></li>
+              <li><a href="">fadsfda</a></li>
+              <li>fadsfda</li>
+          </ul>
+		</div>
+
+		<div class="content">
+            <h1>AH.FM</h1>
+            <p>Minibuttons are our general action-style buttons. Generally they link to a new page, popup, or activate some piece of the page. They are usually not used to submit forms. Also see the minibutton rails helper.</p>
+            <table>
+                <tr>
+                    <td>test</td>
+                    <td>test</td>
+                </tr>
+            </table>
+		    {% block container %}{% endblock %}
+		</div>
+	</div>
+</body>
+</html>

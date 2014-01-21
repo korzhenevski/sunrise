@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+    <meta charset="UTF-8">
+    <title></title>
+    <link rel="stylesheet" type="text/css" href="http://netdna.bootstrapcdn.com/bootstrap/2.3.2/css/bootstrap.css"/>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ chan.title }}</h1>
+        <!--<div class="progress">-->
+            <!--<div class="bar" style="width: 60%;"></div>-->
+        <!--</div>-->
+
+        <ul class="media-list">
+          {% for audio in chan.get_last_audio(10) %}
+          <li class="media">
+            <div class="media-body">
+              <h4 class="media-heading">{{ audio.title }}</h4>
+             </div>
+          </li>
+          {% endfor %}
+        </ul>
+
+    </div>
+    <script type="text/javascript" src="//netdna.bootstrapcdn.com/bootstrap/2.3.2/js/bootstrap.min.js"></script>
+</body>
+</html>

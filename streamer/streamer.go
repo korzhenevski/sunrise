@@ -28,13 +28,13 @@ func SendBlob(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	off, err := strconv.ParseInt(req.FormValue("off"), 10, 0)
+	off, err := strconv.ParseInt(req.FormValue("offset"), 10, 0)
 	if err != nil || off < 0 {
 		http.Error(w, "no valid offset", http.StatusBadRequest)
 		return
 	}
 
-	n, err := strconv.ParseInt(req.FormValue("n"), 10, 0)
+	n, err := strconv.ParseInt(req.FormValue("size"), 10, 0)
 	if err != nil {
 		http.Error(w, "no valid length", http.StatusBadRequest)
 		return
@@ -53,7 +53,6 @@ func SendBlob(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	http.HandleFunc("/sb", SendBlob)
-	http.Handle("/vg/", http.StripPrefix("/vg/", http.FileServer(http.Dir("/home/vagrant/go/github.com/outself/sunrise/"))))
 
 	err := http.ListenAndServe(":12345", nil)
 	if err != nil {

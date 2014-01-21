@@ -9,7 +9,7 @@ import (
 type Dumper struct {
 	dump    *os.File
 	buf     *bufio.Writer
-	Written uint32
+	Written int64
 	Path    string
 }
 
@@ -29,7 +29,7 @@ func (d *Dumper) Open(dumpPath string) {
 }
 
 func (d *Dumper) Write(b []byte) {
-	d.Written += uint32(len(b))
+	d.Written += int64(len(b))
 	nn, err := d.buf.Write(b)
 	if nn < len(b) {
 		panic(err)

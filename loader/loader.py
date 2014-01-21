@@ -17,6 +17,7 @@ def main():
 	parser.add_argument("--tracker", type=str, default='de5:4242')
 	parser.add_argument("--record", action="store_true")
 	parser.add_argument("--duration", type=int, default=3600)
+	parser.add_argument("--size", type=int, default=(128<<20), help='max record blob size (default 20MB)')
 
 	args = parser.parse_args()
 	print args
@@ -41,7 +42,8 @@ def main():
 			'StreamUrl': url,
 			'ServerId': args.server_id,
 			'Record': args.record,
-			'RecordDuration': args.duration,
+			'LimitRecordDuration': args.duration,
+			'LimitRecordSize': args.size,
 			'MinRetryInterval': args.retry_min,
 			'MaxRetryInterval': args.retry_max,
 			'UserAgent': args.user_agent,

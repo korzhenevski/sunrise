@@ -1,40 +1,30 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<title></title>
+	<title>{% block title %}PiratePlay{% endblock %}</title>
 	<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.3.2/css/bootstrap.css">
+	<!--<link rel="stylesheet" type="text/css" href="/static/light.css">-->
 	<link rel="stylesheet" type="text/css" href="/static/minimal.css">
 
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.2.6/angular.min.js"></script>
 	<script src="/static/jquery.min.js"></script>
-	<script src="/static/jouele/jquery.jplayer.min.js"></script>
-	<script src="/static/jouele/jouele.js"></script>
-	<link rel="stylesheet" type="text/css" href="/static/jouele/jouele.css" />
-	
+	<script src="/static/app.js"></script>
 </head>
-<body>
+<body ng-app="app">
 	<div class="container" id="pjax-container">
 		<div class="navbar">
 
 		  <div class="navbar-inner">
-		    <a class="brand" href="/">PiratePlay</a>
+		    <a class="brand" href="/">pirateplay</a>
 
-			<form class="navbar-form pull-left" action="{{ url_for('search') }}">
-				<input type="search" name="q" class="span2" id="short-search" placeholder="search">
-			</form>
-
-		    <ul class="nav pull-right">
-		      <li class="divider-vertical"></li>		    
-		      <li{% if request.endpoint == 'stream_list' %} class="active"{% endif %}>
-		      	<a href="{{ url_for('stream_list') }}">Streams</a>
-		      </li>
-		      <li class="divider-vertical"></li>
-		    </ul>
-
-
+		    <!--<ul class="nav">-->
+		      <!--<li>-->
+		      	<!--<a href="{{ url_for('radio_list') }}">all Radio</a>-->
+		      <!--</li>-->
+		    <!--</ul>-->
 		  </div>
 		</div>
 	
-
 		<div class="content">
 		{% block container %}{% endblock %}
 		</div>

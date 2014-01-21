@@ -6,6 +6,14 @@ from flask import Flask, Response, make_response, abort, request, jsonify, url_f
 
 # ----------- API
 
+@app.route('/api/radio.getList')
+def api_radio_list():
+    return jsonify({'radio': list(db.radio.find(fields=[('_id', 0)]))})
+
+@app.route('/test')
+def test():
+    return 'test'
+
 @app.route('/api/stream.getList')
 def api_stream_list():
     return jsonify({'streams': list(db.streaminfo.find(fields=['_id', 'name']))})

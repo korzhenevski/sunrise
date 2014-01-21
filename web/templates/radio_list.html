@@ -1,0 +1,22 @@
+{% if layout and not request.args.preload %}{% extends "layout.html" %}{% endif -%}
+{% block title %}All Radio{% endblock %}
+{% block container %}
+<div class="row">
+    <div class="span12">
+
+        <table class="table radio-list">
+            {% for radio in radio_list %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('radio_channel', radio_id=radio.channel_id) }}">{{ radio.title }}</a><br />
+                    <span>▶ {{ radio.onair.title }}</span>
+                </td>
+                <td>
+
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% if layout and not request.args.preload %}{% extends "layout.html" %}{% endif -%}
+{% block title %}{{ radio.title }}{% endblock %}
+{% block container %}
+<div class="row">
+    <div class="span8">
+        <h1>{{ radio.title }}</h1>
+
+        <table class="table">
+            {% for audio in radio.get_last_audio(10) %}
+            <tr>
+                <td>
+                    <p>
+                        {{ audio.title or "Untitled" }}
+                    </p>
+                </td>
+                <td><span class="label">{{ audio.duration|toduration }}</span></td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endblock %}

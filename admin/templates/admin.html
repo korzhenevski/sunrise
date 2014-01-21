@@ -7,75 +7,133 @@
 <body>
     <div id="grid1"></div>
 
-<!--     <link href="http://cdn.sencha.com/ext/gpl/4.2.0/resources/css/ext-all.css" rel="stylesheet" />
+    <link href="http://cdn.sencha.com/ext/gpl/4.2.0/resources/css/ext-all.css" rel="stylesheet" />
     <script src="http://cdn.sencha.com/ext/gpl/4.2.0/ext-all.js"></script>
- -->
-<link href="http://cdn.sencha.io/ext/gpl/4.2.0/resources/css/ext-all-neptune.css" rel="stylesheet" />
+
+<!-- <link href="http://cdn.sencha.io/ext/gpl/4.2.0/resources/css/ext-all-neptune.css" rel="stylesheet" />
 <script src="http://cdn.sencha.com/ext/gpl/4.2.0/ext-all.js"></script>
+ -->
 
     <script type="text/javascript">
-        Ext.onReady(function(){
+        Ext.define('QueuedStream', {
+            extend: 'Ext.data.Model',
+            fields: [{
+                    name: '_id',
+                    type: 'int',
+                    useNull: true
+                },
+                'url', 'stream_id', 'server_id', 'channel_id', 'record',
+                'ts', 'retry_ivl', 'min_retry_ivl', 'max_retry_ivl'
+            ],
+            validations: [{
+                type: 'length',
+                field: 'url',
+                min: 1
+            }]
+        });
+
+        Ext.onReady(function () {
             var store = Ext.create('Ext.data.JsonStore', {
-                fields: ['_id', 'url', 'stream_id', 'server_id', 'channel_id', 'record', 'ts'],
+                autoLoad: true,
+                autoSync: true,
+                model: 'QueuedStream',
                 proxy: {
-                    type: 'ajax',
+                    type: 'rest',
                     url: '/queue.json',
                     reader: {
-                        root: 'results'
+                        type: 'json',
+                        root: 'data'
+                    },
+                    writer: {
+                        type: 'json'
                     }
                 }
-            });            
+            });
 
-            store.load();         
+            var rowEditing = Ext.create('Ext.grid.plugin.RowEditing', {
+                listeners: {
+                    cancelEdit: function (rowEditing, context) {
+                        // Canceling editing of a locally added, unsaved record: remove it
+                        if (context.record.phantom) {
+                            store.remove(context.record);
+                        }
+                    }
+                }
+            });
 
             var grid = Ext.create('Ext.grid.Panel', {
-                store: store,
-                columns: [
-                    {
-                        text     : 'ID',
-                        dataIndex: '_id',
-                        width: 50
-                    },
-                    {
-                        text     : 'Url',
-                        dataIndex: 'url',
-                        flex: 1
-                    },
-                    {
-                        text     : 'Server',
-                        dataIndex: 'server_id',
-                        width: 70
-                    },
-                    {
-                        text     : 'Channel',
-                        dataIndex: 'channel_id',
-                        width: 100
-                    },
-                    {
-                        xtype: 'booleancolumn',
-                        text     : 'Recording',
-                        dataIndex: 'record',
-                        width: 90
-                    },
-                    {
-                        text     : 'Time',
-                        dataIndex: 'ts',
-                        width: 150,
-                        renderer: function(value) {
-                            var date = Ext.Date.parse(value, 'U');
-                            return Ext.Date.format(date, 'd/m/Y h:i:s');
-                        }                        
-                    }
-                ],
-                height: 350,
                 width: 600,
-                title: 'Worker Queue',
+                height: 350,
+                store: store,
+                title: 'Worker Queue',                
+                plugins: [rowEditing],
+                columns: [{
+                    text: 'ID',
+                    dataIndex: '_id',
+                    width: 50
+                }, {
+                    text: 'Url',
+                    dataIndex: 'url',
+                    flex: 1
+                }, {
+                    text: 'Server',
+                    dataIndex: 'server_id',
+                    width: 70
+                }, {
+                    text: 'Stream',
+                    dataIndex: 'stream_id',
+                    width: 100,
+                }, {
+                    text: 'Channel',
+                    dataIndex: 'channel_id',
+                    width: 100
+                }, {
+                    xtype: 'booleancolumn',
+                    text: 'Recording',
+                    dataIndex: 'record',
+                    width: 90
+                }, {
+                    text: 'Time',
+                    dataIndex: 'ts',
+                    width: 150,
+                    renderer: function (value) {
+                        var date = Ext.Date.parse(value, 'U');
+                        return Ext.Date.format(date, 'd/m/Y h:i:s');
+                    }
+                }],
+                dockedItems: [{
+                    xtype: 'toolbar',
+                    items: [{
+                        text: 'Add',
+                        iconCls: 'icon-add',
+                        handler: function(){
+                            // empty record
+                            store.insert(0, new QueuedStream());
+                            rowEditing.startEdit(0, 0);
+                        }
+                    }, '-', {
+                        itemId: 'delete',
+                        text: 'Delete',
+                        iconCls: 'icon-delete',
+                        disabled: true,
+                        handler: function(){
+                            var selection = grid.getView().getSelectionModel().getSelection()[0];
+                            if (selection) {
+                                store.remove(selection);
+                            }
+                        }
+                    }]
+                }]
+            });
+
+            grid.getSelectionModel().on('selectionchange', function(selModel, selections){
+                grid.down('#delete').setDisabled(selections.length === 0);
             });
 
             new Ext.Viewport({
                 layout: 'fit',
                 items: [grid],
-                renderTo: 'grid1'                
+                renderTo: 'grid1'
             });
         });
     </script>

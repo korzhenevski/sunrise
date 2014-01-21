@@ -6,7 +6,7 @@ import (
 	// "github.com/cybersiddhu/golang-set"
 	"fmt"
 	"github.com/golang/glog"
-	"github.com/kr/pretty"
+	// "github.com/kr/pretty"
 	"github.com/outself/sunrise/http2"
 	// "github.com/outself/sunrise/mp3"
 	"hash/crc32"
@@ -38,6 +38,7 @@ type Manager struct {
 	tasklog    *mgo.Collection
 	streaminfo *mgo.Collection
 	ch         *mgo.Collection
+	radio      *mgo.Collection
 	holder     sync.Mutex
 	respawner  sync.Mutex
 }
@@ -60,9 +61,9 @@ func New(db *mgo.Database) *Manager {
 	manager.volumes = db.C("volumes")
 	manager.tasklog = db.C("tasklog")
 
-	manager.streaminfo = db.C("streaminfo")
-	manager.streaminfo.EnsureIndexKey("stream_id")
+	manager.radio = db.C("radio")
 
+	// таблица с текущими локами по каналу
 	manager.ch = db.C("ch")
 	manager.ch.EnsureIndexKey("ts")
 
@@ -79,20 +80,23 @@ type OpResult struct {
 }
 
 type Task struct {
-	QueueId          uint32 `bson:"_id"`
-	Id               uint32 `bson:"task_id"`
-	StreamUrl        string `bson:"url"`
-	StreamId         uint32 `bson:"stream_id"`
-	ServerId         uint32 `bson:"server_id"`
-	Record           bool   `bson:"record"`
-	RecordDuration   uint32 `bson:"record_duration"`
-	Time             uint32 `bson:"ts"`
-	RetryInterval    uint32 `bson:"retry_ivl"`
-	MinRetryInterval uint32 `bson:"min_retry_ivl"`
-	MaxRetryInterval uint32 `bson:"max_retry_ivl"`
-	UserAgent        string `bson:"user_agent"`
-	ChannelId        uint32 `bson:"channel_id"`
-	OpResult         `bson:",omitempty"`
+	QueueId             uint32 `bson:"_id"`
+	Id                  uint32 `bson:"task_id"`
+	StreamUrl           string `bson:"url"`
+	StreamId            uint32 `bson:"stream_id"`
+	ServerId            uint32 `bson:"server_id"`
+	Record              bool   `bson:"record"`
+	LimitRecordDuration uint32 `bson:"record_duration"`
+	LimitRecordSize     int64  `bson:"record_size"`
+	Time                uint32 `bson:"ts"`
+	RetryInterval       uint32 `bson:"retry_ivl"`
+	MinRetryInterval    uint32 `bson:"min_retry_ivl"`
+	MaxRetryInterval    uint32 `bson:"max_retry_ivl"`
+	UserAgent           string `bson:"user_agent"`
+	ChannelId           uint32 `bson:"channel_id"`
+	// для потоков без блокировки по каналу
+	HoldChannel bool `bson:"hold_channel"`
+	OpResult    `bson:",omitempty"`
 }
 
 func (t *Task) NextRetryInterval() uint32 {
@@ -148,7 +152,7 @@ type Track struct {
 	ChannelId uint32 `bson:"channel_id"`
 	Title     string `bson:"title"`
 	Time      uint32 `bson:"ts"`
-	RecordId  uint32 `bson:"rid"`
+	RecordId  uint32 `bson:"record_id"`
 	PubTime   uint32 `bson:"pub_ts"`
 	// Айди предыдущего трека
 	PrevId uint32 `bson:"pid"`
@@ -239,6 +243,15 @@ func (m *Manager) PutTask(task Task, res *PutResult) error {
 		return errors.New("StreamUrl required")
 	}
 
+	n, err := m.q.Find(bson.M{"url": task.StreamUrl}).Count()
+	if err != nil {
+		return err
+	}
+
+	if n > 0 {
+		return nil
+	}
+
 	if task.ServerId == 0 {
 		return errors.New("ServerId required")
 	}
@@ -287,6 +300,24 @@ func (m *Manager) RemoveTask(queueId uint32, result *OpResult) error {
 	return nil
 }
 
+func (m *Manager) needNewRecord(req *TrackRequest, task *Task) bool {
+	if req.RecordId == 0 {
+		return true
+	}
+
+	if task.LimitRecordDuration > 0 && req.Duration >= task.LimitRecordDuration {
+		glog.Infof("exceed record duration")
+		return true
+	}
+
+	if task.LimitRecordSize > 0 && req.RecordSize >= task.LimitRecordSize {
+		glog.Infof("exceed record size")
+		return true
+	}
+
+	return false
+}
+
 // TODO: может не создавать трек на lrd (limit record duration) записи ?
 // или помечать как-то особенно? dup=true?
 // rename track to air ?
@@ -309,12 +340,16 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	}
 
 	if task.Record {
-		// TODO: rename to RecordLimit
-		// TODO: что нибудь сделать с повторными треками
-		result.LimitRecordDuration = task.RecordDuration
-
 		record := new(Record)
-		if req.RecordId == 0 || req.Duration >= result.LimitRecordDuration {
+		if m.needNewRecord(&req, task) {
+			if req.RecordId > 0 {
+				glog.Infof("end record %d, size: %d", req.RecordId, req.RecordSize)
+				err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{"size": req.RecordSize, "end_ts": getTs()}})
+				if err != nil {
+					return err
+				}
+			}
+
 			vol, err := m.selectUploadVolume(task.ServerId)
 			if err != nil {
 				return err
@@ -325,6 +360,8 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 			if e != nil {
 				return err
 			}
+
+			glog.Infof("new record %d", record.Id)
 		} else {
 			change := mgo.Change{
 				Update:    bson.M{"$set": bson.M{"size": req.RecordSize}},
@@ -338,10 +375,13 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 			} else if err != nil {
 				return err
 			}
+
+			glog.Infof("use record %d, size: %d", record.Id, req.RecordSize)
 		}
 
-		pretty.Println("Record:", record)
-
+		// TODO: rename to RecordLimit
+		// TODO: что нибудь сделать с повторными треками
+		result.LimitRecordDuration = task.LimitRecordDuration
 		result.RecordId = record.Id
 		result.RecordPath = record.Path
 		result.VolumeId = record.VolumeId
@@ -369,18 +409,26 @@ func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 		return err
 	}
 
-	pretty.Println("track:", track)
-	// glog.Infof("track: %+v", track)
+	// pretty.Println("track:", track)
+	glog.Infof("new track %d '%s', stream %d, channel %d", trackId, title, task.StreamId, task.ChannelId)
 
-	// обновляем статистику по текущему треку
+	// обновляем информацию по текущему треку
+	// really need ??
 	m.q.Update(bson.M{"task_id": req.TaskId}, bson.M{"$set": bson.M{
 		"runtime.track_id": trackId,
 		"runtime.title":    title,
 		"runtime.ts":       getTs(),
 	}})
 
+	m.radio.Update(bson.M{"channel_id": task.ChannelId}, bson.M{"$set": bson.M{
+		"onair.track_id": trackId,
+		"onair.title":    title,
+		"onair.ts":       getTs(),
+	}})
+
 	// завершаем трек
-	if req.TrackId != 0 {
+	if req.TrackId > 0 {
+		glog.Infof("end track %d, stream %d, channel %d", req.TrackId, task.StreamId, task.ChannelId)
 		// glog.Info("end track")
 		if err := m.endTrack(req); err != nil {
 			return err
@@ -410,7 +458,7 @@ func (m *Manager) endTrack(req TrackRequest) error {
 	}
 
 	// завершаем запись
-	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{"size": req.RecordSize, "end_ts": getTs()}})
+	err = m.records.UpdateId(req.RecordId, bson.M{"$set": bson.M{"size": req.RecordSize}})
 	if err != nil {
 		return err
 	}
@@ -636,6 +684,12 @@ func (m *Manager) HoldChannel(info ResponseInfo, result *OpResult) error {
 	}
 
 	m.q.Update(bson.M{"task_id": info.TaskId}, bson.M{"$set": bson.M{"channel_id": channelId}})
+	m.radio.Upsert(bson.M{"channel_id": channelId}, bson.M{"$set": bson.M{
+		"onair.stream_id": info.StreamId,
+		"onair.task_id":   info.TaskId,
+		"onair.info":      streamInfo,
+		"onair.ts":        getTs() + TOUCH_TIMEOUT,
+	}})
 	glog.Infof("hold %d - stream %d, task %d", channelId, info.StreamId, info.TaskId)
 
 	result.Success = true
