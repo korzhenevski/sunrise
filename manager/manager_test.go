@@ -1,7 +1,6 @@
 package manager
 
 import (
-	"github.com/outself/sunrise/http2"
 	"labix.org/v2/mgo"
 	. "launchpad.net/gocheck"
 	"log"
@@ -47,12 +46,12 @@ func (s *MySuite) TestNextId(c *C) {
 // add failing tests
 func (s *MySuite) TestPutAndGetTask(c *C) {
 	task := Task{
-		StreamUrl:        "http://stream.again.fm:8080/stream01?user=hello%20world",
-		StreamId:         1488,
-		ServerId:         100,
-		Record:           true,
-		RecordDuration:   300,
-		MinRetryInterval: 10,
+		StreamUrl:           "http://stream.again.fm:8080/stream01?user=hello%20world",
+		StreamId:            1488,
+		ServerId:            100,
+		Record:              true,
+		LimitRecordDuration: 300,
+		MinRetryInterval:    10,
 	}
 
 	var res PutResult
@@ -79,12 +78,12 @@ func (s *MySuite) TestPutAndGetTask(c *C) {
 
 func (s *MySuite) putTask(streamId uint32, url string, serverId uint32) error {
 	task := Task{
-		StreamUrl:        url,
-		StreamId:         streamId,
-		ServerId:         serverId,
-		Record:           true,
-		RecordDuration:   300,
-		MinRetryInterval: 10,
+		StreamUrl:           url,
+		StreamId:            streamId,
+		ServerId:            serverId,
+		Record:              true,
+		LimitRecordDuration: 300,
+		MinRetryInterval:    10,
 	}
 
 	var res PutResult
@@ -148,23 +147,4 @@ func (s *MySuite) TestGenUniqTaskId(c *C) {
 	id := genTaskId(100)
 	c.Assert(id, Not(Equals), genTaskId(100))
 	c.Assert(id, Not(Equals), genTaskId(200))
-}
-
-func (s *MySuite) TestExtractStreamInfo(c *C) {
-	h := &http2.Header{}
-	h.Add("icy-name", "name ")
-	h.Add("icy-br", "192, 128000")
-	h.Add("icy-url", "http://www.example.com/")
-	h.Add("icy-metaint", " 8019")
-	h.Add("icy-pub", "0")
-
-	info := SInfo{
-		Name:    "name",
-		Url:     "http://www.example.com/",
-		Bitrate: 192,
-		Metaint: 8019,
-		Private: true,
-	}
-
-	c.Assert(ExtractStreamInfo(h), Equals, info)
 }

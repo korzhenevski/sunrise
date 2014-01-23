@@ -2,10 +2,13 @@ package manager
 
 import (
 	crypto_rand "crypto/rand"
+	"github.com/reusee/mmh3"
 	"github.com/vova616/xxhash"
 	"io"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
+	neturl "net/url"
+	"strings"
 	"time"
 )
 
@@ -19,6 +22,18 @@ func getTs() uint32 {
 
 func getTouchTs() uint32 {
 	return uint32(time.Now().Unix()) + TOUCH_TIMEOUT
+}
+
+func FastHash(meta string) uint32 {
+	return mmh3.Hash32([]byte(meta))
+}
+
+func NormalizeUrl(rawurl string) (string, error) {
+	url, err := neturl.Parse(strings.TrimSpace(rawurl))
+	if err != nil {
+		return "", nil
+	}
+	return url.String(), nil
 }
 
 // Generate increment objectId stored in "ids" collection

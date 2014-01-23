@@ -8,6 +8,7 @@ import (
 	"github.com/golang/glog"
 	// "github.com/kr/pretty"
 	"github.com/outself/sunrise/http2"
+	"github.com/outself/sunrise/radio"
 	// "github.com/outself/sunrise/mp3"
 	"hash/crc32"
 	"labix.org/v2/mgo"
@@ -323,7 +324,7 @@ func (m *Manager) needNewRecord(req *TrackRequest, task *Task) bool {
 // rename track to air ?
 func (m *Manager) NewTrack(req TrackRequest, result *TrackResult) error {
 	ts := getTs()
-	title := ExtractStreamTitle(req.StreamMeta)
+	title := radio.ExtractTitle(req.StreamMeta)
 
 	task := new(Task)
 	err := m.q.Find(bson.M{"task_id": req.TaskId}).One(&task)
@@ -644,7 +645,7 @@ func (m *Manager) HoldChannel(info ResponseInfo, result *OpResult) error {
 	m.holder.Lock()
 	defer m.holder.Unlock()
 
-	streamInfo := ExtractStreamInfo(&info.Header)
+	streamInfo := radio.ExtractInfo(&info.Header)
 	if streamInfo.Name == "" {
 		streamInfo.Name = fmt.Sprintf("stream:%s", info.StreamId)
 	}

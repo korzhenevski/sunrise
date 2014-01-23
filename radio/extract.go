@@ -1,19 +1,15 @@
-package manager
+package radio
 
 import (
 	"fmt"
 	"github.com/outself/sunrise/http2"
-	"github.com/reusee/mmh3"
-	neturl "net/url"
 	"regexp"
 	"strings"
 )
 
-var (
-	StreamTitleRe = regexp.MustCompile("StreamTitle='(.*?)'")
-)
+var StreamTitleRe = regexp.MustCompile("StreamTitle='(.*?)'")
 
-type SInfo struct {
+type StreamInfo struct {
 	Name        string `bson:"name"`
 	Url         string `bson:"url"`
 	Genre       string `bson:"genre"`
@@ -23,27 +19,8 @@ type SInfo struct {
 	Metaint     int    `bson:"metaint"`
 }
 
-func FastHash(meta string) uint32 {
-	return mmh3.Hash32([]byte(meta))
-}
-
-func ExtractStreamTitle(meta string) string {
-	match := StreamTitleRe.FindStringSubmatch(meta)
-	if len(match) == 2 {
-		return strings.TrimSpace(match[1])
-	}
-	return ""
-}
-
-func NormalizeUrl(rawurl string) (string, error) {
-	url, err := neturl.Parse(strings.TrimSpace(rawurl))
-	if err != nil {
-		return "", nil
-	}
-	return url.String(), nil
-}
-
-func ExtractStreamInfo(header *http2.Header) (info SInfo) {
+func ExtractInfo(header *http2.Header) (info *StreamInfo) {
+	info = &StreamInfo{}
 	info.Name = strings.TrimSpace(header.Get("Icy-Name"))
 	info.Url = strings.TrimSpace(header.Get("Icy-Url"))
 	info.Genre = strings.TrimSpace(header.Get("Icy-Genre"))
@@ -57,4 +34,12 @@ func ExtractStreamInfo(header *http2.Header) (info SInfo) {
 	fmt.Sscanf(header.Get("Icy-Br"), "%d", &info.Bitrate)
 	fmt.Sscanf(header.Get("Icy-Metaint"), "%d", &info.Metaint)
 	return
+}
+
+func ExtractTitle(meta string) string {
+	match := StreamTitleRe.FindStringSubmatch(meta)
+	if len(match) == 2 {
+		return strings.TrimSpace(match[1])
+	}
+	return ""
 }

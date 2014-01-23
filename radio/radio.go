@@ -43,6 +43,19 @@ func TimeoutDialer(timeout time.Duration) func(net, addr string) (net.Conn, erro
 	}
 }
 
+func NewRadioWithTimeout(url string, userAgent string, timeout time.Duration) (stream *Stream, err error) {
+	client := &http2.Client{
+		Transport: &http2.Transport{
+			Dial:                  TimeoutDialer(timeout),
+			DisableKeepAlives:     true,
+			MaxIdleConnsPerHost:   -1,
+			ResponseHeaderTimeout: timeout,
+		},
+	}
+	radio := &Radio{Url: url, Client: client, UserAgent: userAgent}
+	return radio.Get()
+}
+
 func NewRadio(url string, userAgent string) (stream *Stream, err error) {
 	client := &http2.Client{
 		Transport: &http2.Transport{
