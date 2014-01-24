@@ -8,9 +8,9 @@
 *.txt
 *.log
 
-tracker/tracker
-worker/worker
-worker/data
+trackerd/trackerd
+workerd/workerd
+workerd/data
 
 # Folders
 _obj
