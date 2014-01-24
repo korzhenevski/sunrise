@@ -28,7 +28,9 @@ func main() {
 
 	server := rpc.NewServer()
 	// Register Object Models
-	server.RegisterName("Radio", backend.NewRadio(session.DB(*dbName)))
+	server.RegisterName("Radio", backend.NewRadioService(session.DB(*dbName)))
+	server.RegisterName("Account", backend.NewAccountService(session.DB(*dbName)))
+	server.RegisterName("Audio", backend.NewAudioService(session.DB(*dbName)))
 
 	l, err := net.Listen("tcp", *listenAddr)
 	if err != nil {

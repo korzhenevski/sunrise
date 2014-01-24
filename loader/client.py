@@ -1,4 +1,5 @@
 import json, socket, itertools, re, sys
+from pprint import pprint as pp
 
 class Client(object):
     def __init__(self, addr):
@@ -25,3 +26,15 @@ class Client(object):
 
         return response.get('result')
 
+class SimpleClient(Client):
+        def __call__(self, fn, *args, **kw):
+                # convert radio_get => Radio.Get
+                fn = fn.title().replace('_', '.')
+                # convert key_name => KeyName
+                params = dict((k.title().replace('_', ''), v) for k, v in kw.iteritems())
+                res = self.call(fn, params)
+                pp((fn, params, res))
+		return res
+
+        def __getattr__(self, method):
+                return lambda *args, **kargs: self(method, *args, **kargs)
