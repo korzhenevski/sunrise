@@ -1,0 +1,20 @@
+{% if need_layout %}{% extends "layout.html" %}{% endif -%}
+{% block title %}Upload{% endblock %}
+{% block container %}
+<h1>Streams</h1>
+
+<form action="{{ url_for('upload_playlist') }}" method="POST" enctype="multipart/form-data">
+	<input type="file" name="playlist" accept="audio/x-mpegurl,audio/x-scpls,text/plain" />
+	<input type="submit" value="Upload" />
+</form>
+
+<div class="row">
+    <div class="span8">
+    	{% for stream in streams %}
+    	<p>{{ stream.Url }}</p>
+    	{% else %}
+    	<p>no streams</p>
+    	{% endfor %}
+    </div>
+</div>
+{% endblock %}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/purell"
+	"github.com/kr/beanstalk"
 	"github.com/outself/sunrise/radio"
 	"io/ioutil"
 	"log"
@@ -153,6 +154,26 @@ func (r Response) String() (s string) {
 }
 
 func main() {
+	c, err := beanstalk.Dial("tcp", "127.0.0.1:11300")
+	if err != nil {
+		panic(err)
+	}
+	tube := beanstalk.NewTubeSet(c, "spider")
+
+	for {
+		id, body, err := tube.Reserve(10 * time.Hour)
+		if cerr, ok := err.(beanstalk.ConnError); ok && cerr.Err == beanstalk.ErrTimeout {
+			fmt.Println("timed out. continue...")
+			continue
+		} else if err != nil {
+			log.Printf("%s", err)
+		}
+		fmt.Println("job", id)
+		fmt.Println(string(body))
+	}
+}
+
+func main2() {
 	http.HandleFunc("/check", checkHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", nil))

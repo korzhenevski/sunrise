@@ -31,6 +31,8 @@ func main() {
 	server.RegisterName("Radio", backend.NewRadioService(session.DB(*dbName)))
 	server.RegisterName("Account", backend.NewAccountService(session.DB(*dbName)))
 	server.RegisterName("Audio", backend.NewAudioService(session.DB(*dbName)))
+	server.RegisterName("Streams", backend.NewStreamService(session.DB(*dbName)))
+	server.RegisterName("Playlist", backend.NewPlaylistService(session.DB(*dbName)))
 
 	l, err := net.Listen("tcp", *listenAddr)
 	if err != nil {

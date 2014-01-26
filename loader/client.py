@@ -1,4 +1,7 @@
-import json, socket, itertools, re, sys
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import json, socket, itertools, re, sys, time
 from pprint import pprint as pp
 
 class Client(object):
@@ -27,14 +30,22 @@ class Client(object):
         return response.get('result')
 
 class SimpleClient(Client):
-        def __call__(self, fn, *args, **kw):
-                # convert radio_get => Radio.Get
-                fn = fn.title().replace('_', '.')
-                # convert key_name => KeyName
-                params = dict((k.title().replace('_', ''), v) for k, v in kw.iteritems())
-                res = self.call(fn, params)
-                pp((fn, params, res))
-		return res
+    debug = False
 
-        def __getattr__(self, method):
-                return lambda *args, **kargs: self(method, *args, **kargs)
+    def __call__(self, fn, *args, **kw):
+        # convert radio_get => Radio.Get
+        fn = fn.title().replace('_', '.')
+    
+        # convert key_name => KeyName
+        params = dict((k.title().replace('_', ''), v) for k, v in kw.iteritems())
+    
+        ts = time.time()
+        res = self.call(fn, params)
+        if self.debug:
+            latency = round(time.time() - ts, 4)
+            pp((latency, fn, params, res))
+
+    	return res
+
+    def __getattr__(self, method):
+        return lambda *args, **kargs: self(method, *args, **kargs)
