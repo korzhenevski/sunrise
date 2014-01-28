@@ -21,9 +21,22 @@ func main() {
 	flag.Parse()
 	defer glog.Flush()
 
+	l, err := net.Listen("tcp", *listenAddr)
+	if err != nil {
+		glog.Fatal("listen error:", err)
+	}
+	glog.Infof("listen on %s...", *listenAddr)
+
 	session, err := mgo.DialWithTimeout(*dbUrl, 1*time.Second)
 	if err != nil {
 		glog.Fatal("mongo dial error: ", err)
+	}
+	// require confirmation from mongo: safe writes
+	session.SetSafe(&mgo.Safe{})
+
+	bd, err := jsonrpc.Dial("tcp", *listenAddr)
+	if err != nil {
+		panic(err)
 	}
 
 	server := rpc.NewServer()
@@ -31,15 +44,8 @@ func main() {
 	server.RegisterName("Radio", backend.NewRadioService(session.DB(*dbName)))
 	server.RegisterName("Account", backend.NewAccountService(session.DB(*dbName)))
 	server.RegisterName("Audio", backend.NewAudioService(session.DB(*dbName)))
-	server.RegisterName("Streams", backend.NewStreamService(session.DB(*dbName)))
+	server.RegisterName("Stream", backend.NewStreamService(session.DB(*dbName), bd))
 	server.RegisterName("Playlist", backend.NewPlaylistService(session.DB(*dbName)))
-
-	l, err := net.Listen("tcp", *listenAddr)
-	if err != nil {
-		glog.Fatal("listen error:", err)
-	}
-
-	glog.Infof("listen on %s...", *listenAddr)
 
 	for {
 		if conn, err := l.Accept(); err == nil {

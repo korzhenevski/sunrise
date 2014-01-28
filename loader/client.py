@@ -6,17 +6,19 @@ from pprint import pprint as pp
 
 class Client(object):
     def __init__(self, addr):
-        self.socket = socket.create_connection(addr)
+        self.addr = addr 
         self.id_counter = itertools.count()
 
     def call(self, name, *params):
         request = dict(id=next(self.id_counter),
                     params=list(params),
                     method=name)
-        self.socket.sendall(json.dumps(request).encode())
+        sock = socket.create_connection(self.addr)
+        # sock.settimeout(0)
+        sock.sendall(json.dumps(request).encode())
 
-        # This must loop if resp is bigger than 4K
-        response = self.socket.recv(4096)
+        # This must loop if resp is bigger than 64K
+        response = sock.recv(1024 * 64)
         response = json.loads(response.decode())
 
         if response.get('id') != request.get('id'):
@@ -34,7 +36,7 @@ class SimpleClient(Client):
 
     def __call__(self, fn, *args, **kw):
         # convert radio_get => Radio.Get
-        fn = fn.title().replace('_', '.')
+        fn = fn.title().replace('_', '.', 1).replace('_', '')
     
         # convert key_name => KeyName
         params = dict((k.title().replace('_', ''), v) for k, v in kw.iteritems())

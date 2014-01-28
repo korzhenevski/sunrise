@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# from gevent.monkey import patch_all
+# patch_all()
+
 import pymongo, sys, os
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for
@@ -27,7 +30,11 @@ bd.debug = True
 
 @app.route('/test')
 def test():
-    return render_template('test.html')
+	# streams = bd.stream_get(owner_id=user.id).get('Items') or []
+	res = bd.stream_search(query='http://fr4.ah.fm:443/')
+	# res = bd.stream_test()
+	return jsonify({'res': res})
+    # return render_template('test.html')
 
 @app.route('/')
 def index():
@@ -35,7 +42,7 @@ def index():
 
 @app.route('/streams')
 def streams():
-	streams = bd.streams_get()
+	streams = bd.stream_get()
 	return render_template('streams.html', streams=streams.get('Items') or [])
 
 @app.route('/upload_playlist', methods=['POST'])
@@ -46,7 +53,7 @@ def upload_playlist():
 		content = playlist.stream.read()
 		urls = parse_playlist(content.decode('utf-8', errors='ignore'))
 		if urls:
-			result = dict((url, bd.streams_save(url=url, owner_id=user.id)) for url in urls)
+			result = dict((url, bd.stream_save(url=url, owner_id=user.id)) for url in urls)
 			print result
 
 	return redirect(url_for('streams'))

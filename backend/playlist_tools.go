@@ -17,6 +17,11 @@ type PlaylistInfo struct {
 }
 
 var playlistUrlRe = regexp.MustCompile(`(?im)^(:?file\d+=)?(http://.*)$`)
+var urlNormFlags = purell.FlagsSafe | purell.FlagRemoveUnnecessaryHostDots | purell.FlagRemoveFragment
+
+func normalizeUrl(url string) (string, error) {
+	return purell.NormalizeURLString(url, urlNormFlags)
+}
 
 func uniqUrls(urls []string) (out []string) {
 	set := make(map[string]struct{})
@@ -33,14 +38,12 @@ func uniqUrls(urls []string) (out []string) {
 }
 
 func parsePlaylist(content string) (urls []string) {
-	normFlags := purell.FlagsSafe | purell.FlagRemoveUnnecessaryHostDots | purell.FlagRemoveFragment
-
 	var streamUrl string
 	result := playlistUrlRe.FindAllStringSubmatch(content, -1)
 
 	for _, m := range result {
 		streamUrl = strings.TrimSpace(m[2])
-		if streamUrl, err := purell.NormalizeURLString(streamUrl, normFlags); err == nil {
+		if streamUrl, err := normalizeUrl(streamUrl); err == nil {
 			urls = append(urls, strings.TrimSpace(streamUrl))
 		} else {
 			log.Printf("parse %s error: %s", streamUrl, err)

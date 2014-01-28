@@ -16,8 +16,8 @@ type Client struct {
 	MaxRetries int
 }
 
-func NewClient(addr string) *Client {
-	c := &Client{Addr: addr, MaxRetries: 30}
+func NewClient(addr string, maxRetries int) *Client {
+	c := &Client{Addr: addr, MaxRetries: maxRetries}
 	return c
 }
 

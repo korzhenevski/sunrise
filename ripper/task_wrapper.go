@@ -27,7 +27,7 @@ func NewWorker(serverId uint32, serverAddr string) *Worker {
 	return &Worker{
 		Id:       rand.Uint32(),
 		ServerId: serverId,
-		Client:   rpc2.NewClient(serverAddr),
+		Client:   rpc2.NewClient(serverAddr, 30),
 		tasks:    make(map[uint32]*Ripper),
 		stop:     make(chan bool),
 	}
