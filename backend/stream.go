@@ -153,6 +153,48 @@ func (s *StreamService) Delete(params *StreamDeleteParams, response *bool) error
 	return nil
 }
 
+type StreamGetChannelsParams struct {
+	OwnerId int
+}
+
+type StreamChannel struct {
+	Title       string   `bson:"_id"`
+	RadioId     int      `bson:"radio_id"`
+	Bitrate     []int    `bson:"bitrate"`
+	StreamId    []int    `bson:"stream_id"`
+	ContentType []string `bson:"content_type"`
+}
+
+type ChannelsResult struct {
+	Items []StreamChannel
+}
+
+func (s *StreamService) GetChannels(params StreamGetChannelsParams, result *ChannelsResult) error {
+	iter := s.streams.Pipe([]bson.M{
+		{"$match": bson.M{"owner_id": params.OwnerId, "radio_id": bson.M{"$gt": 0}}},
+		{"$project": bson.M{
+			"radio_id":     1,
+			"stream_id":    "$_id",
+			"title":        "$info.name",
+			"bitrate":      "$info.bitrate",
+			"content_type": "$info.content_type",
+		}},
+		{"$group": bson.M{
+			"_id":          "$title",
+			"radio_id":     bson.M{"$first": "$radio_id"},
+			"bitrate":      bson.M{"$addToSet": "$bitrate"},
+			"stream_id":    bson.M{"$addToSet": "$stream_id"},
+			"content_type": bson.M{"$addToSet": "$content_type"},
+		}},
+	})
+
+	if err := iter.All(&result.Items); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type StreamSearchParams struct {
 	Query string
 }

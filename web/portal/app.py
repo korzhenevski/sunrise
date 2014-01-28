@@ -42,7 +42,8 @@ def index():
 
 @app.route('/streams')
 def streams():
-	streams = bd.stream_get()
+	# streams = bd.stream_get()
+	streams = bd.stream_get_channels(owner_id=user.id)
 	return render_template('streams.html', streams=streams.get('Items') or [])
 
 @app.route('/upload_playlist', methods=['POST'])
