@@ -104,6 +104,8 @@ func (s *StreamService) Save(stream Stream, result *int) error {
 	}
 
 	// go func(stream Stream) {
+	// TODO: мету важно получить сразу,
+	// пока терпимо без фоновой обработки
 	if err := s.updateInfo(stream); err != nil {
 		glog.Infof("update_info: %s - %s", stream.Url, err)
 	}
@@ -115,6 +117,7 @@ func (s *StreamService) Save(stream Stream, result *int) error {
 
 func (s *StreamService) updateInfo(stream Stream) error {
 	var info radio.StreamInfo
+	// TODO: можно вынести в отдельный сервис и дергать по RPC
 	if err := s.FetchInfo(StreamFetchInfoParams{stream.Url}, &info); err != nil {
 		glog.Warningf("fetch info err: %s", err)
 		return err
@@ -144,10 +147,36 @@ type StreamDeleteParams struct {
 	RadioId int
 }
 
-func (s *StreamService) Delete(params *StreamDeleteParams, response *bool) error {
+func (s *StreamService) Delete(params StreamDeleteParams, response *bool) error {
 	// soft-delete: set current timestamp to deleted_at
 	update := bson.M{"$set": bson.M{"deleted_at": time.Now().Unix()}}
 	if err := s.streams.Update(bson.M{"_id": params.RadioId, "owner_id": params.OwnerId}, update); err != nil {
+		return err
+	}
+	return nil
+}
+
+type StreamGetListenParams struct {
+	RadioId int
+	OwnerId int
+	Bitrate int
+}
+
+type StreamListen struct {
+	Bitrate int      `bson:"_id"`
+	Url     []string `bson:"url"`
+}
+
+type StreamGetListenResult struct {
+}
+
+func (s *StreamService) GetListen(params StreamGetListenParams, result *StreamListen) error {
+	where := bson.M{"owner_id": params.OwnerId, "radio_id": params.RadioId}
+	iter := s.streams.Pipe([]bson.M{
+		{"$match": where},
+		{"$group": bson.M{"_id": "$info.bitrate", "url": bson.M{"$addToSet": "$url"}}},
+	})
+	if err := iter.One(&result); err != nil {
 		return err
 	}
 	return nil

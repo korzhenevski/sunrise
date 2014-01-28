@@ -36,15 +36,19 @@ def test():
 	return jsonify({'res': res})
     # return render_template('test.html')
 
-@app.route('/')
-def index():
-    return render_template('layout.html')
+# @app.route('/')
+# def index():
+#     return render_template('layout.html')
 
-@app.route('/streams')
+@app.route('/')
 def streams():
-	# streams = bd.stream_get()
 	streams = bd.stream_get_channels(owner_id=user.id)
 	return render_template('streams.html', streams=streams.get('Items') or [])
+
+@app.route('/listen/<int:radio_id>')
+def radio_listen(radio_id):
+	res = bd.stream_get_listen(owner_id=user.id, radio_id=radio_id)
+	return jsonify({'res': res})
 
 @app.route('/upload_playlist', methods=['POST'])
 def upload_playlist():

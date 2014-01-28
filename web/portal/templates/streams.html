@@ -12,7 +12,7 @@
     <div class="span8">
     	{% for stream in streams|sort(attribute='Title') %}
     	<p>
-    	<strong><a href="#">{{ stream.Title }}</a></strong><br>
+    	<strong><a href="{{ url_for('radio_listen', radio_id=stream.RadioId) }}">{{ stream.Title }}</a></strong><br>
     	{{ stream.ContentType|join(', ') }} &mdash; {{ stream.Bitrate|sort|join(', ') }}
     	
     	</p>
