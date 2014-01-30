@@ -455,3 +455,17 @@ ul.inline > li {
 .player-stream-title {
     font-size: 10px;
 }
+
+.channels td {
+    border-top: 0;
+}
+
+.channels .label {
+    font-weight: normal !important;
+    font-size: 10px;
+    padding: 1px 4px;
+}
+
+.channel-info {
+    text-align: right !important;
+}
