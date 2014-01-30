@@ -2,9 +2,13 @@
 <html>
 <head>
 	<title>{% block title %}AFM{% endblock %}</title>
-	<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.3.2/css/bootstrap.css">
-	<!--<link rel="stylesheet" type="text/css" href="/static/light.css">-->
+	<link rel="stylesheet" href="/static/bootstrap.css">
 	<link rel="stylesheet" href="/static/style.css"/>
+
+	<script src="/static/jquery.min.js"></script>
+	<script src="/static/angular.min.js"></script>
+	<script src="/static/soundmanager2.js"></script>
+	<script src="/static/audio.js"></script>
 </head>
 <body>
 	<div class="container" id="pjax-container">
@@ -14,7 +18,7 @@
         </ul>
 		</div>
 
-		<div class="content">
+		<div class="container" ng-app="afm">
 		    {% block container %}{% endblock %}
 		</div>
 	</div>

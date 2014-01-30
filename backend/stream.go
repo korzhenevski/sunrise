@@ -43,25 +43,28 @@ func NewStreamService(db *mgo.Database, bd *rpc.Client) *StreamService {
 
 type StreamInfo struct {
 	Url  string           `bson:"_id"`
+	Date int64            `bson:"date,minsize"`
 	Info radio.StreamInfo `bson:"info"`
 }
 
 type Stream struct {
 	Id        int    `bson:"_id"`
-	Name      string `bson:"name,omitempty"`
-	RadioId   int    `bson:"radio_id,omitempty"`
+	Name      string `bson:"name,omitempty" json:"-"`
+	RadioId   int    `bson:"radio_id,minsize,omitempty"`
 	OwnerId   int    `bson:"owner_id,omitempty"`
-	DeletedAt int64  `bson:"deleted_at,minsize"`
-	AddedAt   int64  `bson:"added_at,omitempty,minsize"`
+	DeletedAt int64  `bson:"deleted_at,minsize" json:"-"`
+	AddedAt   int64  `bson:"added_at,omitempty,minsize" json:"-"`
 	Url       string `bson:"url"`
 	// info from headers
-	Info radio.StreamInfo `bson:"info"`
+	Info radio.StreamInfo `bson:"info,omitempty"`
 }
 
 type StreamGetParams struct {
-	OwnerId int
-	RadioId int
-	Id      []int
+	OwnerId     int
+	RadioId     int
+	Bitrate     int
+	ContentType []string
+	Id          []int
 }
 
 type StreamResult struct {
@@ -78,10 +81,30 @@ func (s *StreamService) Get(params StreamGetParams, result *StreamResult) error 
 		where["_id"] = bson.M{"$in": params.Id}
 	}
 
+	if params.RadioId > 0 {
+		where["radio_id"] = params.RadioId
+	}
+
+	if params.Bitrate > 0 {
+		where["info.bitrate"] = params.Bitrate
+	}
+
+	if len(params.ContentType) > 0 {
+		where["info.content_type"] = bson.M{"$in": params.ContentType}
+	}
+
 	iter := s.streams.Find(where).Limit(1000).Iter()
-	if err := iter.All(&result.Items); err != nil {
+	var stream Stream
+	for iter.Next(&stream) {
+		if stream.Info.Shoutcast {
+			stream.Url += ";"
+		}
+		result.Items = append(result.Items, stream)
+	}
+	if err := iter.Close(); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -95,43 +118,38 @@ func (s *StreamService) Save(stream Stream, result *int) error {
 	}
 	stream.AddedAt = time.Now().Unix()
 
+	glog.Infof("save_stream: %+v", stream)
 	if err := s.streams.Insert(stream); err != nil {
 		if mgo.IsDup(err) {
+			go s.updateInfo(stream)
 			*result = -1
 			return nil
 		}
 		return err
 	}
 
-	// go func(stream Stream) {
 	// TODO: мету важно получить сразу,
 	// пока терпимо без фоновой обработки
-	if err := s.updateInfo(stream); err != nil {
-		glog.Infof("update_info: %s - %s", stream.Url, err)
-	}
-	// }(stream)
-
+	s.updateInfo(stream)
 	*result = stream.Id
 	return nil
 }
 
-func (s *StreamService) updateInfo(stream Stream) error {
+func (s *StreamService) updateInfo(stream Stream) {
 	var info radio.StreamInfo
 	// TODO: можно вынести в отдельный сервис и дергать по RPC
 	if err := s.FetchInfo(StreamFetchInfoParams{stream.Url}, &info); err != nil {
 		glog.Warningf("fetch info err: %s", err)
-		return err
 	}
 
 	radioId := crc32.ChecksumIEEE([]byte(info.Name))
-	glog.Infof("update_info: %s - info=%+v radio_id=%d", stream.Url, info, radioId)
+	glog.Infof("stream_info: %s - info=%+v radio_id=%d", stream.Url, info, radioId)
 
-	if err := s.streams.UpdateId(stream.Id, bson.M{"$set": bson.M{"radio_id": radioId, "info": info}}); err != nil {
+	where := bson.M{"owner_id": stream.OwnerId, "url": stream.Url}
+	glog.Infof("where: %+v", where)
+	if err := s.streams.Update(where, bson.M{"$set": bson.M{"radio_id": radioId, "info": info}}); err != nil {
 		glog.Warningf("stream %d update err: %s", stream.Id, err)
-		return err
 	}
-
-	return nil
 }
 
 func (s *StreamService) Edit(stream Stream, result *int) error {
@@ -183,7 +201,8 @@ func (s *StreamService) GetListen(params StreamGetListenParams, result *StreamLi
 }
 
 type StreamGetChannelsParams struct {
-	OwnerId int
+	OwnerId     int
+	ContentType []string
 }
 
 type StreamChannel struct {
@@ -199,8 +218,13 @@ type ChannelsResult struct {
 }
 
 func (s *StreamService) GetChannels(params StreamGetChannelsParams, result *ChannelsResult) error {
+	where := bson.M{"owner_id": params.OwnerId, "radio_id": bson.M{"$gt": 0}}
+	if len(params.ContentType) > 0 {
+		where["info.content_type"] = bson.M{"$in": params.ContentType}
+	}
+
 	iter := s.streams.Pipe([]bson.M{
-		{"$match": bson.M{"owner_id": params.OwnerId, "radio_id": bson.M{"$gt": 0}}},
+		{"$match": where},
 		{"$project": bson.M{
 			"radio_id":     1,
 			"stream_id":    "$_id",
@@ -237,13 +261,15 @@ type StreamFetchInfoParams struct {
 }
 
 func (s *StreamService) FetchInfo(params StreamFetchInfoParams, result *radio.StreamInfo) error {
-	// caching
+	// cache for 1 day
 	var info StreamInfo
-	if err := s.stream_info.FindId(params.Url).One(&info); err != nil {
+	where := bson.M{"_id": params.Url, "date": bson.M{"$gt": time.Now().AddDate(0, 0, -1).Unix()}}
+	if err := s.stream_info.Find(where).One(&info); err != nil {
 		if err != mgo.ErrNotFound {
 			return err
 		}
 	} else {
+		glog.Infof("%s: load stream_info from cache", params.Url)
 		*result = info.Info
 		return nil
 	}
@@ -257,7 +283,8 @@ func (s *StreamService) FetchInfo(params StreamFetchInfoParams, result *radio.St
 	*result = *radio.ExtractInfo(r.Header())
 
 	// update cache
-	if _, err := s.stream_info.UpsertId(params.Url, StreamInfo{Url: params.Url, Info: *result}); err != nil {
+	info = StreamInfo{Url: params.Url, Info: *result, Date: time.Now().Unix()}
+	if _, err := s.stream_info.UpsertId(params.Url, info); err != nil {
 		return err
 	}
 	return nil

@@ -419,3 +419,39 @@ ul.inline > li {
 .brand a {
     border-bottom: 0;
 }
+
+.player-wrap {
+    overflow: hidden;
+    height: 30px;
+}
+
+.player-control {
+    float: left;
+}
+
+.player-controls {
+    margin-left: 8px;
+    float: left;
+}
+
+.player-controls .badge {
+    padding: 3px 2px;
+}
+
+.player-control .btn {
+    padding: 4px 7px;
+}
+
+.player-info {
+    padding: 7px 0;
+    margin-left: 8px;
+    float: left;
+}
+
+.player-title {
+    font-weight: bold;
+}
+
+.player-stream-title {
+    font-size: 10px;
+}

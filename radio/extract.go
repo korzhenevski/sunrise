@@ -15,6 +15,7 @@ type StreamInfo struct {
 	Genre       string `bson:"genre"`
 	ContentType string `bson:"content_type"`
 	Private     bool   `bson:"private"`
+	Shoutcast   bool   `bson:"shoutcast"`
 	Bitrate     int    `bson:"bitrate"`
 	Metaint     int    `bson:"metaint"`
 }
@@ -25,6 +26,11 @@ func ExtractInfo(header *http2.Header) (info *StreamInfo) {
 	info.Url = strings.TrimSpace(header.Get("Icy-Url"))
 	info.Genre = strings.TrimSpace(header.Get("Icy-Genre"))
 	info.ContentType = strings.TrimSpace(header.Get("Content-Type"))
+
+	// SHOUTcast reply Icy-Notice2 header with server signature
+	if strings.HasPrefix(header.Get("Icy-Notice2"), "SHOUTcast") {
+		info.Shoutcast = true
+	}
 
 	// any value except zero mark stream is public
 	if header.Get("Icy-Pub") == "0" {

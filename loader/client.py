@@ -14,7 +14,6 @@ class Client(object):
                     params=list(params),
                     method=name)
         sock = socket.create_connection(self.addr)
-        # sock.settimeout(0)
         sock.sendall(json.dumps(request).encode())
 
         # This must loop if resp is bigger than 64K

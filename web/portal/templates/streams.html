@@ -1,24 +1,56 @@
 {% if need_layout %}{% extends "layout.html" %}{% endif -%}
-{% block title %}Upload{% endblock %}
+{% block title %}My Radio{% endblock %}
 {% block container %}
-<h1>Streams</h1>
 
-<form action="{{ url_for('upload_playlist') }}" method="POST" enctype="multipart/form-data">
-	<input type="file" name="playlist" accept="audio/x-mpegurl,audio/x-scpls,text/plain" />
-	<input type="submit" value="Upload" />
-</form>
+<div class="row" ng-controller="PlayerCtrl">
+	<div class="span12">
+		<div class="well well-small">
+			<form action="{{ url_for('upload_playlist') }}" method="POST" enctype="multipart/form-data">
+			<input type="file" name="playlist" accept="audio/x-mpegurl,audio/x-scpls,text/plain" />
+			<input type="submit" value="Upload" />
+			</form>
+		</div>
 
-<div class="row">
+		<div class="well well-small player-wrap" ng-show="player.radioId">
+			<div class="player-control">
+				<button class="btn" ng-show="isPaused()" ng-click="play()">
+					<i class="icon icon-play"></i>
+				</button>
+				
+				<button class="btn" ng-hide="isPaused()" ng-click="stop()">
+					<i class="icon icon-pause"></i>
+				</button>				
+			</div>
+			<div class="player-info">
+				<div class="player-title" ng-bind="player.title">&nbsp;</div>
+				<!-- <div class="player-stream-title" ng-bind="player.title">&nbsp;</div> -->
+			</div>
+			<div class="player-controls">
+				<div class="btn-group" ng-show="player.bitrate.length > 1">
+					<button class="btn" ng-class="{active: br == bitrate}" ng-repeat="br in player.bitrate" ng-bind="br" ng-click="switchBitrate(br)">
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
     <div class="span8">
-    	{% for stream in streams|sort(attribute='Title') %}
-    	<p>
-    	<strong><a href="{{ url_for('radio_listen', radio_id=stream.RadioId) }}">{{ stream.Title }}</a></strong><br>
-    	{{ stream.ContentType|join(', ') }} &mdash; {{ stream.Bitrate|sort|join(', ') }}
-    	
-    	</p>
-    	{% else %}
-    	<p>no streams</p>
-    	{% endfor %}
+		<h2>Channels</h2>
+		<table class="table table-hover">
+    		{% for ch in channels|sort(attribute='Title') %}
+			<tr ng-click='select({{ ch.playinfo|tojson|safe }})'>
+				<td>
+					<a href="">{{ ch.Title }}</a><br/>
+					{{ ch.ContentType|join(', ') }} &mdash; {{ ch.Bitrate|sort|join(', ') }}
+				</td>
+				<td>
+				
+				</td>
+			</tr>
+    		{% else %}
+    		<tr><td colspan="2"><p>no streams</p></td></tr>
+    		{% endfor %}
+		</table>
     </div>
 </div>
 {% endblock %}
